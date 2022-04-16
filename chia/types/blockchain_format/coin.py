@@ -1,7 +1,6 @@
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any, List
-
-from clvm.casts import int_to_bytes
 
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.util.hash import std_hash
@@ -28,7 +27,22 @@ class Coin(Streamable):
         # significant bit is set, to encode it as a positive number. This
         # despite "amount" being unsigned. This way, a CLVM program can generate
         # these hashes easily.
-        return std_hash(self.parent_coin_info + self.puzzle_hash + int_to_bytes(self.amount))
+        amount = self.amount
+        return bytes32(
+            sha256(
+                self.parent_coin_info
+                + self.puzzle_hash
+                + (
+                    (
+                        amount.to_bytes(
+                            length=(8 + (amount + (amount < 0)).bit_length()) // 8, byteorder="big", signed=True
+                        )
+                    )
+                    if amount != 0
+                    else b""
+                )
+            ).digest()
+        )
 
     def name(self) -> bytes32:
         return self.get_hash()
