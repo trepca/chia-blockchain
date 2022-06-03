@@ -333,7 +333,7 @@ class TradeManager:
             fee_left_to_pay: uint64 = fee
             wallet_paying_fee: Union[int, bytes32]
             for id, solver in offer_dict.items():
-                if isinstance(solver, int) & (solver > 0):  # type: ignore
+                if isinstance(solver, int) and (solver > 0):  # type: ignore
                     if isinstance(id, int):
                         wallet_id = uint32(id)
                         wallet = self.wallet_state_manager.wallets[wallet_id]
