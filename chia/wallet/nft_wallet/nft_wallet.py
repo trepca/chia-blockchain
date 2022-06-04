@@ -30,7 +30,7 @@ from chia.wallet.nft_wallet.nft_puzzles import (
     get_metadata_and_phs,
 )
 from chia.wallet.nft_wallet.uncurry_nft import UncurriedNFT
-from chia.wallet.outer_puzzles import AssetType, match_puzzle
+from chia.wallet.outer_puzzles import AssetType, get_inner_puzzle, match_puzzle
 from chia.wallet.payment import Payment
 from chia.wallet.puzzle_drivers import PuzzleInfo, Solver
 from chia.wallet.puzzles.load_clvm import load_clvm
@@ -52,6 +52,7 @@ from chia.wallet.wallet import Wallet
 from chia.wallet.wallet_info import WalletInfo
 
 STANDARD_PUZZLE_MOD = load_clvm("p2_delegated_puzzle_or_hidden_puzzle.clvm")
+NFT_GRAFTROOT_TRANSFER_MOD = load_clvm("nft_graftroot_transfer.clvm")
 
 _T_NFTWallet = TypeVar("_T_NFTWallet", bound="NFTWallet")
 
@@ -913,13 +914,27 @@ class NFTWallet:
         spends_to_fix: List[CoinSpend] = []
         for spend in incomplete_spends:
             # TODO: identify this as an NFT1 with the proper graftroot solution
-            if True:
+            # nft_info = match_puzzle(spend.puzzle_reveal.to_program())
+            unft = UncurriedNFT.uncurry(spend.puzzle_reveal.to_program())
+            owner_info = match_puzzle(unft.inner_puzzle)
+            inner_puzzle = get_inner_puzzle(owner_info, unft.inner_puzzle)
+            mod, args = inner_puzzle.uncurry()
+
+            if mod == NFT_GRAFTROOT_TRANSFER_MOD:
                 spends_to_fix.append(spend)
 
         replacement_spends: List[CoinSpend] = []
         for spend in spends_to_fix:
             # TODO: solve the graftroot inner puzzle w/ a pubkey etc.
+            dr = await self.wallet_state_manager.get_unused_derivation_record(self.standard_wallet.id())
+            pk = bytes(dr.pubkey)
+            new_puzzle = self.standard_wallet.puzzle_for_pk(pk)
+            new_ph = new_puzzle.get_tree_hash()
+            my_amount = spend.coin.amount
+
+            graftroot_inner_solution = Program.to([pk, new_ph, my_amount])
             # TODO: reach into the appropriate wallets to add royalty payments to the offer spend bundle
+
             # (be sure to exclude coins from selection that are already in the offer)
             # TODO: Add a signature of the trade prices list
             pass
