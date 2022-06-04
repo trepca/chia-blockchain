@@ -853,8 +853,9 @@ class NFTWallet:
                 innersol = self.standard_wallet.make_solution(
                     primaries=[],
                 )
+            ownership_layer_solution = Program.to([innersol])
+            nft_layer_solution = Program.to([ownership_layer_solution, coin_info.coin.amount])
 
-            nft_layer_solution = Program.to([innersol, coin_info.coin.amount])
             assert isinstance(coin_info.lineage_proof, LineageProof)
             singleton_solution = Program.to(
                 [coin_info.lineage_proof.to_program(), coin_info.coin.amount, nft_layer_solution]
@@ -874,8 +875,9 @@ class NFTWallet:
     async def create_offer_transactions(
         self, amount: Union[Solver, uint64], coins: List[Coin], announcements: Set[Announcement], fee: uint64
     ) -> SpendBundle:
+        spend_bundles: List[SpendBundle]
         if isinstance(amount, int):
-            spend_bundles: List[SpendBundle] = [
+            spend_bundles = [
                 tx.spend_bundle
                 for tx in await self.generate_signed_transaction(
                     [amount],
@@ -886,9 +888,26 @@ class NFTWallet:
                 )
                 if tx.spend_bundle is not None
             ]
-            return SpendBundle.aggregate(spend_bundles)
+
         else:
-            raise ValueError("No support for non-standard offers yet")
+            # create  a list of spend bundles for the nft1 offer
+            # extract the correct ph from the given solver
+            solver = amount
+            amounts = []
+            for asset in solver.info["trade_prices_list"]:
+                for key, val in asset.items():
+                    if isinstance(key, bytes32) and asset["offered"]:
+                        amounts.append(val)
+            signed_txs = await self.generate_signed_transaction(
+                amounts,
+                [Offer.ph()],
+                fee=fee,
+                coins=set(coins),
+                puzzle_announcements_to_consume=announcements,
+            )
+            spend_bundles = [tx.spend_bundle for tx in signed_txs if tx.spend_bundle is not None]
+
+        return SpendBundle.aggregate(spend_bundles)
 
     async def fix_incomplete_offer(self, offer: Offer, incomplete_spends: List[CoinSpend]) -> Offer:
         spends_to_fix: List[CoinSpend] = []

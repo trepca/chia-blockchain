@@ -981,10 +981,8 @@ async def test_nft_offers_with_did_wallet(two_wallet_nodes: Any, trusted: Any) -
     maker_fee = uint64(433)
     driver_dict: Dict[bytes32, Optional[PuzzleInfo]] = {nft_to_offer_asset_id: nft_to_offer_info}
 
-    asset_hex = "0x" + nft_to_offer_asset_id.hex()
-
     trade_solver = Solver(
-        {"trade_prices_list": [{asset_hex: 1, "offered": True}, {None: xch_requested, "offered": False}]}
+        {"trade_prices_list": [{nft_to_offer_asset_id: 1, "offered": True}, {None: xch_requested, "offered": False}]}
     )
 
     offer_did_nft_for_xch = {nft_to_offer_asset_id: trade_solver}
