@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from secrets import token_bytes
-from typing import Any, Dict, List, Optional, Set, Tuple, Type, TypeVar
+from typing import Any, Dict, List, Optional, Set, Tuple, Type, TypeVar, Union
 
 from blspy import AugSchemeMPL, G1Element, G2Element
 from clvm.casts import int_to_bytes
@@ -32,7 +32,7 @@ from chia.wallet.nft_wallet.nft_puzzles import (
 from chia.wallet.nft_wallet.uncurry_nft import UncurriedNFT
 from chia.wallet.outer_puzzles import AssetType, match_puzzle
 from chia.wallet.payment import Payment
-from chia.wallet.puzzle_drivers import PuzzleInfo
+from chia.wallet.puzzle_drivers import PuzzleInfo, Solver
 from chia.wallet.puzzles.load_clvm import load_clvm
 from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import (
     DEFAULT_HIDDEN_PUZZLE_HASH,
@@ -42,6 +42,7 @@ from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import (
 )
 from chia.wallet.puzzles.puzzle_utils import make_create_coin_condition
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import match_singleton_puzzle
+from chia.wallet.trading.offer import Offer
 from chia.wallet.transaction_record import TransactionRecord
 from chia.wallet.util.compute_memos import compute_memos
 from chia.wallet.util.debug_spend_bundle import disassemble
@@ -131,7 +132,10 @@ class NFTWallet:
 
     async def get_new_puzzle(self) -> Program:
         self.log.debug("Getting new puzzle for NFT wallet: %s", self.id())
-        return self.puzzle_for_pk((await self.wallet_state_manager.get_unused_derivation_record(self.id())).pubkey)
+        return await self.standard_wallet.get_new_puzzle()
+
+    async def get_new_puzzlehash(self) -> bytes32:
+        return await self.standard_wallet.get_new_puzzlehash()
 
     def id(self) -> uint32:
         return self.wallet_info.id
@@ -207,9 +211,7 @@ class NFTWallet:
         )
         singleton_id = uncurried_nft.singleton_launcher_id
         parent_inner_puzhash = uncurried_nft.nft_state_layer.get_tree_hash()
-        metadata, p2_puzzle_hash = get_metadata_and_phs(
-            uncurried_nft, puzzle, Program.from_bytes(bytes(coin_spend.solution))
-        )
+        metadata, p2_puzzle_hash = get_metadata_and_phs(uncurried_nft, delegated_puz_solution)
         self.log.debug("Got back puzhash from solution: %s", p2_puzzle_hash)
         derivation_record: Optional[
             DerivationRecord
@@ -686,7 +688,10 @@ class NFTWallet:
         else:
             return puzzle_info
 
-    async def get_coins_to_offer(self, asset_id: bytes32, amount: uint64) -> Set[Coin]:
+    async def get_coins_to_offer(
+        self, asset_id: Optional[bytes32], amount: Union[Solver, uint64], fee: uint64
+    ) -> Set[Coin]:
+        assert asset_id is not None
         nft_coin: Optional[NFTCoinInfo] = self.get_nft(asset_id)
         if nft_coin is None:
             raise ValueError("An asset ID was specified that this wallet doesn't track")
@@ -769,7 +774,13 @@ class NFTWallet:
             coin_announcements_to_consume=coin_announcements_to_consume,
             puzzle_announcements_to_consume=puzzle_announcements_to_consume,
         )
-        spend_bundle = await self.sign(unsigned_spend_bundle)
+        p2_puzzles: List[bytes32] = []
+        for spend in unsigned_spend_bundle.coin_spends:
+            try:
+                p2_puzzles.append(UncurriedNFT.uncurry(spend.puzzle_reveal.to_program()).p2_puzzle.get_tree_hash())
+            except Exception:
+                pass
+        spend_bundle = await self.sign(unsigned_spend_bundle, p2_puzzles)
 
         tx_list = [
             TransactionRecord(
@@ -868,8 +879,9 @@ class NFTWallet:
                 innersol = self.standard_wallet.make_solution(
                     primaries=[],
                 )
+            ownership_layer_solution = Program.to([innersol])
+            nft_layer_solution = Program.to([ownership_layer_solution, coin_info.coin.amount])
 
-            nft_layer_solution = Program.to([innersol, coin_info.coin.amount])
             assert isinstance(coin_info.lineage_proof, LineageProof)
             singleton_solution = Program.to(
                 [coin_info.lineage_proof.to_program(), coin_info.coin.amount, nft_layer_solution]
@@ -885,3 +897,63 @@ class NFTWallet:
         unsigned_spend_bundle = SpendBundle.aggregate([nft_spend_bundle, chia_spend_bundle])
 
         return (unsigned_spend_bundle, chia_tx)
+
+    async def create_offer_transactions(
+        self, amount: Union[Solver, uint64], coins: List[Coin], announcements: Set[Announcement], fee: uint64
+    ) -> SpendBundle:
+        spend_bundles: List[SpendBundle]
+        if isinstance(amount, int):
+            spend_bundles = [
+                tx.spend_bundle
+                for tx in await self.generate_signed_transaction(
+                    [amount],
+                    [Offer.ph()],
+                    fee=fee,
+                    coins=set(coins),
+                    puzzle_announcements_to_consume=announcements,
+                )
+                if tx.spend_bundle is not None
+            ]
+
+        else:
+            # create  a list of spend bundles for the nft1 offer
+            # extract the correct ph from the given solver
+            solver = amount
+            amounts = []
+            for asset in solver.info["trade_prices_list"]:
+                for key, val in asset.items():
+                    if isinstance(key, bytes32) and asset["offered"]:
+                        amounts.append(val)
+            signed_txs = await self.generate_signed_transaction(
+                amounts,
+                [Offer.ph()],
+                fee=fee,
+                coins=set(coins),
+                puzzle_announcements_to_consume=announcements,
+            )
+            spend_bundles = [tx.spend_bundle for tx in signed_txs if tx.spend_bundle is not None]
+
+        return SpendBundle.aggregate(spend_bundles)
+
+    async def fix_incomplete_offer(self, offer: Offer, incomplete_spends: List[CoinSpend]) -> Offer:
+        spends_to_fix: List[CoinSpend] = []
+        for spend in incomplete_spends:
+            # TODO: identify this as an NFT1 with the proper graftroot solution
+            if True:
+                spends_to_fix.append(spend)
+
+        replacement_spends: List[CoinSpend] = []
+        for spend in spends_to_fix:
+            # TODO: solve the graftroot inner puzzle w/ a pubkey etc.
+            # TODO: reach into the appropriate wallets to add royalty payments to the offer spend bundle
+            # (be sure to exclude coins from selection that are already in the offer)
+            # TODO: Add a signature of the trade prices list
+            pass
+
+        new_spend_list: List[CoinSpend] = [cs for cs in offer.bundle.coin_spends if cs not in spends_to_fix]
+        new_bundle = SpendBundle([*new_spend_list, *replacement_spends], offer.bundle.aggregated_signature)
+        return Offer(
+            offer.requested_payments,
+            new_bundle,
+            offer.driver_dict,
+        )

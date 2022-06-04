@@ -8,12 +8,13 @@ from chia.protocols.wallet_protocol import CoinState
 from chia.types.blockchain_format.coin import Coin, coin_as_list
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
+from chia.types.coin_spend import CoinSpend
 from chia.types.spend_bundle import SpendBundle
 from chia.util.db_wrapper import DBWrapper
 from chia.util.hash import std_hash
 from chia.util.ints import uint32, uint64
 from chia.wallet.payment import Payment
-from chia.wallet.puzzle_drivers import PuzzleInfo
+from chia.wallet.puzzle_drivers import PuzzleInfo, Solver
 from chia.wallet.trade_record import TradeRecord
 from chia.wallet.trading.offer import NotarizedPayment, Offer
 from chia.wallet.trading.trade_status import TradeStatus
@@ -58,7 +59,7 @@ class TradeManager:
         - get_asset_id() -> bytes32
       - Finally, you must make sure that your wallet will respond appropriately when these WSM methods are called:
         - get_wallet_for_puzzle_info(puzzle_info: PuzzleInfo) -> <Your wallet>
-        - create_wallet_for_puzzle_info(..., puzzle_info: PuzzleInfo) -> <Your wallet>  (See cat_wallet.py for full API)
+        - create_wallet_for_puzzle_info(puzzle_info: PuzzleInfo) -> <Your wallet>
         - get_wallet_for_asset_id(asset_id: bytes32) -> <Your wallet>
     """
 
@@ -222,12 +223,9 @@ class TradeManager:
 
             if wallet is None:
                 continue
-
-            if wallet.type() == WalletType.NFT:
-                new_ph = await wallet.wallet_state_manager.main_wallet.get_new_puzzlehash()
-            else:
-                new_ph = await wallet.get_new_puzzlehash()
-            # This should probably not switch on whether or not we're spending a XCH but it has to for now
+            new_ph = await wallet.get_new_puzzlehash()
+            # This should probably not switch on whether or not we're spending an XCH but it has to for now
+            # ATTENTION: new_wallets
             if wallet.type() == WalletType.STANDARD_WALLET:
                 if fee_to_pay > coin.amount:
                     selected_coins: Set[Coin] = await wallet.select_coins(
@@ -246,7 +244,6 @@ class TradeManager:
                 )
                 all_txs.append(tx)
             else:
-                # ATTENTION: new_wallets
                 txs = await wallet.generate_signed_transaction(
                     [coin.amount], [new_ph], fee=fee_to_pay, coins={coin}, ignore_max_send_amount=True
                 )
@@ -288,7 +285,7 @@ class TradeManager:
 
     async def create_offer_for_ids(
         self,
-        offer: Dict[Union[int, bytes32], int],
+        offer: Dict[Union[int, bytes32], Union[Solver, int]],
         driver_dict: Optional[Dict[bytes32, PuzzleInfo]] = None,
         fee: uint64 = uint64(0),
         validate_only: bool = False,
@@ -321,20 +318,22 @@ class TradeManager:
 
     async def _create_offer_for_ids(
         self,
-        offer_dict: Dict[Union[int, bytes32], int],
+        offer_dict: Dict[Union[int, bytes32], Union[Solver, int]],
         driver_dict: Optional[Dict[bytes32, PuzzleInfo]] = None,
         fee: uint64 = uint64(0),
     ) -> Tuple[bool, Optional[Offer], Optional[str]]:
         """
-        Offer is dictionary of wallet ids and amount
+        Offer is dictionary of wallet ids and amounts/Solvers
         """
         if driver_dict is None:
             driver_dict = {}
         try:
             coins_to_offer: Dict[Union[int, bytes32], List[Coin]] = {}
             requested_payments: Dict[Optional[bytes32], List[Payment]] = {}
-            for id, amount in offer_dict.items():
-                if amount > 0:
+            fee_left_to_pay: uint64 = fee
+            wallet_paying_fee: Union[int, bytes32]
+            for id, solver in offer_dict.items():
+                if isinstance(solver, int) and (solver > 0):  # type: ignore
                     if isinstance(id, int):
                         wallet_id = uint32(id)
                         wallet = self.wallet_state_manager.wallets[wallet_id]
@@ -354,8 +353,8 @@ class TradeManager:
                         asset_id = id
                         wallet = await self.wallet_state_manager.get_wallet_for_asset_id(asset_id.hex())
                         memos = [p2_ph]
-                    requested_payments[asset_id] = [Payment(p2_ph, uint64(amount), memos)]
-                elif amount < 0:
+                    requested_payments[asset_id] = [Payment(p2_ph, uint64(solver), memos)]  # type: ignore
+                else:
                     if isinstance(id, int):
                         wallet_id = uint32(id)
                         wallet = self.wallet_state_manager.wallets[wallet_id]
@@ -370,11 +369,24 @@ class TradeManager:
                     else:
                         asset_id = id
                         wallet = await self.wallet_state_manager.get_wallet_for_asset_id(asset_id.hex())
+                    if isinstance(solver, int):
+                        if solver == 0:
+                            raise ValueError("You cannot offer nor request 0 amount of something")
+                        solver = uint64(abs(solver))
                     if not callable(getattr(wallet, "get_coins_to_offer", None)):  # ATTENTION: new wallets
                         raise ValueError(f"Cannot offer coins from wallet id {wallet.id()}")
-                    coins_to_offer[id] = await wallet.get_coins_to_offer(asset_id, uint64(abs(amount)))
-                elif amount == 0:
-                    raise ValueError("You cannot offer nor request 0 amount of something")
+                    # Have the standard_wallet pay the fee if possible to prevent coin selection conflicts
+                    if 1 in offer_dict or None in offer_dict:
+                        if wallet.type() == WalletType.STANDARD_WALLET:
+                            this_fee: uint64 = fee_left_to_pay
+                        else:
+                            this_fee = uint64(0)
+                    else:
+                        this_fee = fee_left_to_pay
+
+                    coins_to_offer[id] = await wallet.get_coins_to_offer(asset_id, solver, this_fee)
+                    fee_left_to_pay = uint64(0)
+                    wallet_paying_fee = id
 
                 if asset_id is not None and wallet is not None:
                     if callable(getattr(wallet, "get_puzzle_info", None)):
@@ -394,51 +406,24 @@ class TradeManager:
             )
             announcements_to_assert = Offer.calculate_announcements(notarized_payments, driver_dict)
 
-            all_transactions: List[TransactionRecord] = []
-            fee_left_to_pay: uint64 = fee
+            all_transactions: List[SpendBundle] = []
             for id, selected_coins in coins_to_offer.items():
                 if isinstance(id, int):
                     wallet = self.wallet_state_manager.wallets[id]
                 else:
                     wallet = await self.wallet_state_manager.get_wallet_for_asset_id(id.hex())
-                # This should probably not switch on whether or not we're spending XCH but it has to for now
-                if wallet.type() == WalletType.STANDARD_WALLET:
-                    tx = await wallet.generate_signed_transaction(
-                        abs(offer_dict[id]),
-                        Offer.ph(),
-                        fee=fee_left_to_pay,
-                        coins=set(selected_coins),
-                        puzzle_announcements_to_consume=announcements_to_assert,
-                    )
-                    all_transactions.append(tx)
-                elif wallet.type() == WalletType.NFT:
-                    # This is to generate the tx for specific nft assets, i.e. not using
-                    # wallet_id as the selector which would select any coins from nft_wallet
-                    amounts = [coin.amount for coin in selected_coins]
-                    txs = await wallet.generate_signed_transaction(
-                        # [abs(offer_dict[id])],
-                        amounts,
-                        [Offer.ph()],
-                        fee=fee_left_to_pay,
-                        coins=set(selected_coins),
-                        puzzle_announcements_to_consume=announcements_to_assert,
-                    )
-                    all_transactions.extend(txs)
-                else:
-                    # ATTENTION: new_wallets
-                    txs = await wallet.generate_signed_transaction(
-                        [abs(offer_dict[id])],
-                        [Offer.ph()],
-                        fee=fee_left_to_pay,
-                        coins=set(selected_coins),
-                        puzzle_announcements_to_consume=announcements_to_assert,
-                    )
-                    all_transactions.extend(txs)
 
-                fee_left_to_pay = uint64(0)
+                solver = offer_dict[id]
+                if isinstance(solver, int):
+                    solver = abs(solver)
 
-            transaction_bundles: List[Optional[SpendBundle]] = [tx.spend_bundle for tx in all_transactions]
-            total_spend_bundle = SpendBundle.aggregate(list(filter(lambda b: b is not None, transaction_bundles)))
+                # ATTENTION: new_wallets
+                bundle: SpendBundle = await wallet.create_offer_transactions(
+                    solver, selected_coins, announcements_to_assert, fee if id == wallet_paying_fee else uint64(0)
+                )
+                all_transactions.append(bundle)
+
+            total_spend_bundle = SpendBundle.aggregate(all_transactions)
             offer = Offer(notarized_payments, total_spend_bundle, driver_dict)
             return True, offer, None
 
@@ -557,7 +542,7 @@ class TradeManager:
         return txs
 
     async def respond_to_offer(self, offer: Offer, fee=uint64(0)) -> Tuple[bool, Optional[TradeRecord], Optional[str]]:
-        take_offer_dict: Dict[Union[bytes32, int], int] = {}
+        take_offer_dict: Dict[Union[bytes32, int], Union[Solver, int]] = {}
         arbitrage: Dict[Optional[bytes32], int] = offer.arbitrage()
         for asset_id, amount in arbitrage.items():
             if asset_id is None:
@@ -568,10 +553,8 @@ class TradeManager:
                 wallet = await self.wallet_state_manager.get_wallet_for_asset_id(asset_id.hex())
                 if wallet is None and amount < 0:
                     return False, None, f"Do not have a wallet for asset ID: {asset_id} to fulfill offer"
-                elif wallet is None or wallet.type() == WalletType.NFT:
-                    key = asset_id
                 else:
-                    key = int(wallet.id())
+                    key = asset_id
             take_offer_dict[key] = amount
 
         # First we validate that all of the coins in this offer exist
@@ -584,6 +567,8 @@ class TradeManager:
             return False, None, error
 
         complete_offer = Offer.aggregate([offer, take_offer])
+        if complete_offer.incomplete_spends() != []:
+            complete_offer = await self.fix_incomplete_offer(complete_offer)
         assert complete_offer.is_valid()
         final_spend_bundle: SpendBundle = complete_offer.to_valid_spend()
 
@@ -631,3 +616,12 @@ class TradeManager:
             await self.wallet_state_manager.add_transaction(tx)
 
         return True, trade_record, None
+
+    async def fix_incomplete_offer(self, offer: Offer) -> Offer:
+        incomplete_spends: List[CoinSpend] = offer.incomplete_spends()
+        for _, wallet in self.wallet_state_manager.wallets.items():
+            if callable(getattr(wallet, "fix_incomplete_offer", None)):
+                offer = await wallet.fix_incomplete_offer(offer, incomplete_spends)
+            if offer.incomplete_spends() == []:
+                return offer
+        raise ValueError("This offer contained invalid spends that the trade manager couldn't fix")

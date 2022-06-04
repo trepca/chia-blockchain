@@ -5,7 +5,7 @@ from blspy import G1Element
 from clvm.casts import int_from_bytes
 from clvm_tools.binutils import disassemble
 
-from chia.types.blockchain_format.program import Program, SerializedProgram
+from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.util.ints import uint16, uint64
 from chia.wallet.nft_wallet.nft_info import NFTCoinInfo, NFTInfo
@@ -24,7 +24,7 @@ NFT_STATE_LAYER_MOD_HASH = NFT_STATE_LAYER_MOD.get_tree_hash()
 OFFER_MOD = load_clvm("settlement_payments.clvm")
 NFT_METADATA_UPDATER = load_clvm("nft_metadata_updater_default.clvm")
 NFT_OWNERSHIP_LAYER = load_clvm("nft_ownership_layer.clvm")
-NFT_TRANSFER_PROGRAM_DEFAULT = load_clvm("nft_ownership_transfer_program_one_way_claim_with_royalties_new.clvm")
+NFT_TRANSFER_PROGRAM_DEFAULT = load_clvm("nft_ownership_transfer_program_one_way_claim_with_royalties.clvm")
 STANDARD_PUZZLE_MOD = load_clvm("p2_delegated_puzzle_or_hidden_puzzle.clvm")
 
 
@@ -248,13 +248,8 @@ def create_ownership_layer_transfer_solution(
     return solution
 
 
-def get_metadata_and_phs(unft: UncurriedNFT, puzzle: Program, solution: SerializedProgram) -> Tuple[Program, bytes32]:
-    full_solution: Program = Program.from_bytes(bytes(solution))
-    delegated_puz_solution: Program = Program.from_bytes(bytes(solution)).rest().rest().first().first()
-    if delegated_puz_solution.rest().as_python() == b"":
-        conditions = puzzle.run(full_solution)
-    else:
-        conditions = delegated_puz_solution.rest().first().rest()
+def get_metadata_and_phs(unft: UncurriedNFT, solution: Program) -> Tuple[Program, bytes32]:
+    conditions = unft.inner_puzzle.run(solution)
     metadata = unft.metadata
     puzhash_for_derivation: Optional[bytes32] = None
     for condition in conditions.as_iter():

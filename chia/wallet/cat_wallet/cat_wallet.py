@@ -5,7 +5,7 @@ import logging
 import time
 import traceback
 from secrets import token_bytes
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from blspy import AugSchemeMPL, G2Element
 
@@ -38,13 +38,14 @@ from chia.wallet.coin_selection import select_coins
 from chia.wallet.derivation_record import DerivationRecord
 from chia.wallet.lineage_proof import LineageProof
 from chia.wallet.outer_puzzles import AssetType
-from chia.wallet.puzzle_drivers import PuzzleInfo
+from chia.wallet.puzzle_drivers import PuzzleInfo, Solver
 from chia.wallet.payment import Payment
 from chia.wallet.puzzles.tails import ALL_LIMITATIONS_PROGRAMS
 from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import (
     DEFAULT_HIDDEN_PUZZLE_HASH,
     calculate_synthetic_secret_key,
 )
+from chia.wallet.trading.offer import Offer
 from chia.wallet.transaction_record import TransactionRecord
 from chia.wallet.util.compute_memos import compute_memos
 from chia.wallet.util.transaction_type import TransactionType
@@ -818,8 +819,28 @@ class CATWallet:
     def get_puzzle_info(self, asset_id: bytes32) -> PuzzleInfo:
         return PuzzleInfo({"type": AssetType.CAT.value, "tail": "0x" + self.get_asset_id()})
 
-    async def get_coins_to_offer(self, asset_id: Optional[bytes32], amount: uint64) -> Set[Coin]:
+    async def get_coins_to_offer(
+        self, asset_id: Optional[bytes32], amount: Union[Solver, uint64], fee: uint64
+    ) -> Set[Coin]:
+        assert isinstance(amount, int)
         balance = await self.get_confirmed_balance()
-        if balance < amount:
+        if balance < amount + fee:
             raise Exception(f"insufficient funds in wallet {self.id()}")
-        return await self.select_coins(amount)
+        return await self.select_coins(uint64(amount + fee))
+
+    async def create_offer_transactions(
+        self, amount: Union[Solver, uint64], coins: List[Coin], announcements: Set[Announcement], fee: uint64
+    ) -> SpendBundle:
+        assert isinstance(amount, int)
+        spend_bundles: List[SpendBundle] = [
+            tx.spend_bundle
+            for tx in await self.generate_signed_transaction(
+                [amount],
+                [Offer.ph()],
+                fee=fee,
+                coins=set(coins),
+                puzzle_announcements_to_consume=announcements,
+            )
+            if tx.spend_bundle is not None
+        ]
+        return SpendBundle.aggregate(spend_bundles)
