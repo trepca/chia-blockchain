@@ -25,12 +25,13 @@ from chia.wallet.nft_wallet.nft_info import NFTCoinInfo, NFTWalletInfo
 from chia.wallet.nft_wallet.nft_puzzles import (
     NFT_METADATA_UPDATER,
     NFT_STATE_LAYER_MOD_HASH,
+    NFT_TRANSFER_PROGRAM_DEFAULT,
     create_ownership_layer_puzzle,
     create_ownership_layer_transfer_solution,
     get_metadata_and_phs,
 )
 from chia.wallet.nft_wallet.uncurry_nft import UncurriedNFT
-from chia.wallet.outer_puzzles import AssetType, get_inner_puzzle, match_puzzle
+from chia.wallet.outer_puzzles import AssetType, get_inner_puzzle, match_puzzle, solve_puzzle
 from chia.wallet.payment import Payment
 from chia.wallet.puzzle_drivers import PuzzleInfo, Solver
 from chia.wallet.puzzles.load_clvm import load_clvm
@@ -42,7 +43,7 @@ from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import (
 )
 from chia.wallet.puzzles.puzzle_utils import make_create_coin_condition
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import match_singleton_puzzle
-from chia.wallet.trading.offer import Offer
+from chia.wallet.trading.offer import NotarizedPayment, Offer
 from chia.wallet.transaction_record import TransactionRecord
 from chia.wallet.util.compute_memos import compute_memos
 from chia.wallet.util.debug_spend_bundle import disassemble
@@ -880,13 +881,49 @@ class NFTWallet:
                 innersol = self.standard_wallet.make_solution(
                     primaries=[],
                 )
-            ownership_layer_solution = Program.to([innersol])
-            nft_layer_solution = Program.to([ownership_layer_solution, coin_info.coin.amount])
 
-            assert isinstance(coin_info.lineage_proof, LineageProof)
-            singleton_solution = Program.to(
-                [coin_info.lineage_proof.to_program(), coin_info.coin.amount, nft_layer_solution]
-            )
+            # If DID
+            unft = UncurriedNFT.uncurry(coin_info.full_puzzle)
+            nft_info = match_puzzle(coin_info.full_puzzle)
+            owner_info = match_puzzle(unft.inner_puzzle)
+            inner_puzzle = get_inner_puzzle(owner_info, unft.inner_puzzle)
+
+            # solver
+            coin = coin_info.coin
+            parent_coin_id = coin_info.coin.parent_coin_info
+
+            # get the parent spend from past txns
+            all_txns = await self.wallet_state_manager.get_all_transactions(self.id())
+            for tx in all_txns:
+                for c in tx.removals:
+                    if c.name() == parent_coin_id:
+                        parent_tx = tx
+                        break
+            assert parent_tx is not None
+            for cs in parent_tx.spend_bundle.coin_spends:
+                if cs.coin.name() == parent_coin_id:
+                    parent_spend = cs
+                    break
+            assert parent_spend is not None
+
+            coin_bytes = b"".join([coin.parent_coin_info, coin.puzzle_hash, bytes(uint64(coin.amount))])
+
+            solver = Solver({"coin": coin_bytes, "parent_spend": bytes(parent_spend)})
+
+            singleton_solution = solve_puzzle(nft_info, solver, inner_puzzle, innersol)
+
+            # Failing:
+            coin_info.full_puzzle.run(singleton_solution)
+
+            # ownership_layer_solution = Program.to([innersol])
+            # nft_layer_solution = Program.to([ownership_layer_solution, coin_info.coin.amount])
+
+            # assert isinstance(coin_info.lineage_proof, LineageProof)
+
+            # singleton_solution = Program.to(
+            #     [coin_info.lineage_proof.to_program(), coin_info.coin.amount, sol]
+            # )
+
             coin_spend = CoinSpend(coin_info.coin, coin_info.full_puzzle, singleton_solution)
             coin_spends.append(coin_spend)
 
@@ -963,6 +1000,12 @@ class NFTWallet:
 
             # (be sure to exclude coins from selection that are already in the offer)
             # TODO: Add a signature of the trade prices list
+            unft = UncurriedNFT.uncurry(spend.puzzle_reveal.to_program())
+            owner_info = match_puzzle(unft.inner_puzzle)
+            inner_puzzle = get_inner_puzzle(owner_info, unft.inner_puzzle)
+            mod, args = inner_puzzle.uncurry()
+            conditions, trade_price_list = args
+            AugSchemeMPL.sign(dr.sk, trade_price_list)
             pass
 
         new_spend_list: List[CoinSpend] = [cs for cs in offer.bundle.coin_spends if cs not in spends_to_fix]
@@ -972,3 +1015,34 @@ class NFTWallet:
             new_bundle,
             offer.driver_dict,
         )
+
+    async def summarize_offer_spend(self, coin_spend: CoinSpend) -> Dict[str, Any]:
+        try:
+            uncurried_nft = UncurriedNFT.uncurry(coin_spend.puzzle_reveal.to_program())
+        except ValueError as e:
+            return {"error": f"error parsing NFT {str(e)}"}
+
+        summary_dict: Dict[str, Any] = {}
+        summary_dict["metadata"] = disassemble(uncurried_nft.metadata)
+        summary_dict["metadata_updater_hash"] = uncurried_nft.metadata_updater_hash.hex()
+        if uncurried_nft.transfer_program is not None:
+            summary_dict["nft_properties"] = ["owned"]
+            if uncurried_nft.transfer_program == NFT_TRANSFER_PROGRAM_DEFAULT:
+                summary_dict["nft_properties"].append("buyer/seller signed royalties")
+                summary_dict["pubkey"] = (
+                    None if uncurried_nft.owner_pubkey is None else bytes(uncurried_nft.owner_pubkey).hex()
+                )
+                summary_dict["royalty_address"] = (
+                    None if uncurried_nft.royalty_address is None else uncurried_nft.royalty_address.hex()
+                )
+                summary_dict["trade_price_percentage"] = (
+                    None if uncurried_nft.trade_price_percentage is None else uncurried_nft.trade_price_percentage
+                )
+            summary_dict["owner"] = None if uncurried_nft.owner_did is None else uncurried_nft.owner_did.hex()
+        return summary_dict
+
+    async def summarize_offer_request(self, asset_id: bytes32, request: NotarizedPayment) -> Dict[str, Any]:
+        summary_dict: Dict[str, Any] = {}
+        summary_dict["trade_prices_list"] = disassemble(Program.from_bytes(request.memos[0]))
+        summary_dict["new_pubkey"] = G1Element.from_bytes(request.memos[1])
+        return summary_dict

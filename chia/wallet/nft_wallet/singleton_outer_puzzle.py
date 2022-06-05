@@ -50,9 +50,9 @@ class SingletonOuterPuzzle:
         return puzzle_for_singleton(constructor["launcher_id"], inner_puzzle, launcher_hash)
 
     def solve(self, constructor: PuzzleInfo, solver: Solver, inner_puzzle: Program, inner_solution: Program) -> Program:
-        coin_bytes: bytes = solver["coin"]
+        coin_bytes: bytes = solver.info["coin"]
         coin: Coin = Coin(bytes32(coin_bytes[0:32]), bytes32(coin_bytes[32:64]), uint64.from_bytes(coin_bytes[64:72]))
-        parent_spend: CoinSpend = CoinSpend.from_bytes(solver["parent_spend"])
+        parent_spend: CoinSpend = CoinSpend.from_bytes(solver.info["parent_spend"])
         parent_coin: Coin = parent_spend.coin
         if constructor.also() is not None:
             inner_solution = self._solve(constructor.also(), solver, inner_puzzle, inner_solution)
