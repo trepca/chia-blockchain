@@ -9,11 +9,10 @@
   )
 
   (include condition_codes.clvm)
-
   (c
     (list ASSERT_MY_AMOUNT my_amount)
     (c
-      (list -10 () TRADE_PRICE_LIST new_pk ())
+      (list -10 () TRADE_PRICE_LIST new_pk (list 0))
       (c
         (list CREATE_COIN new_ph my_amount (list new_ph))
         CONDITIONS

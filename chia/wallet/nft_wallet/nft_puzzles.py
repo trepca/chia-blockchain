@@ -12,8 +12,10 @@ from chia.wallet.nft_wallet.nft_info import NFTCoinInfo, NFTInfo
 from chia.wallet.nft_wallet.uncurry_nft import UncurriedNFT
 from chia.wallet.puzzles.cat_loader import CAT_MOD
 from chia.wallet.puzzles.load_clvm import load_clvm
-from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import solution_for_conditions, \
-    solution_for_delegated_puzzle
+from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import (
+    solution_for_conditions,
+    solution_for_delegated_puzzle,
+)
 
 log = logging.getLogger(__name__)
 SINGLETON_TOP_LAYER_MOD = load_clvm("singleton_top_layer_v1_1.clvm")
@@ -31,7 +33,7 @@ NFT_GRAFTROOT_TRANSFER_MOD = load_clvm("nft_graftroot_transfer.clvm")
 
 
 def create_nft_layer_puzzle_with_curry_params(
-        metadata: Program, metadata_updater_hash: bytes32, inner_puzzle: Program
+    metadata: Program, metadata_updater_hash: bytes32, inner_puzzle: Program
 ) -> Program:
     """Curries params into nft_state_layer.clvm
 
@@ -70,7 +72,7 @@ def create_full_puzzle_with_nft_puzzle(singleton_id: bytes32, inner_puzzle: Prog
 
 
 def create_full_puzzle(
-        singleton_id: bytes32, metadata: Program, metadata_updater_puzhash: bytes32, inner_puzzle: Program
+    singleton_id: bytes32, metadata: Program, metadata_updater_puzhash: bytes32, inner_puzzle: Program
 ) -> Program:
     log.debug(
         "Creating full NFT puzzle with: \n%r\n%r\n%r\n%r",
@@ -184,11 +186,11 @@ def update_metadata(metadata: Program, update_condition: Program) -> Program:
 
 
 def create_ownership_layer_puzzle(
-        nft_id: bytes32,
-        did_id: bytes,
-        p2_puzzle: Program,
-        percentage: uint16,
-        royalty_puzzle_hash: Optional[bytes32] = None,
+    nft_id: bytes32,
+    did_id: bytes,
+    p2_puzzle: Program,
+    percentage: uint16,
+    royalty_puzzle_hash: Optional[bytes32] = None,
 ) -> Program:
     log.debug(
         "Creating ownership layer puzzle with NFT_ID: %s DID_ID: %s Royalty_Percentage: %d P2_puzzle: %s",
@@ -217,10 +219,10 @@ def create_ownership_layer_puzzle(
 
 
 def create_ownership_layer_mint_solution(
-        new_did: bytes,
-        new_did_inner_hash: bytes32,
-        trade_prices_list: List[List[int]],
-        new_pubkey: G1Element,
+    new_did: bytes,
+    new_did_inner_hash: bytes32,
+    trade_prices_list: List[List[int]],
+    new_pubkey: G1Element,
 ) -> Program:
     log.debug(
         "Creating a mint solution with: DID:%s Inner_puzhash:%s trade_price:%s pubkey:%s",
@@ -251,9 +253,7 @@ def create_ownership_layer_mint_solution(
 
 
 def create_ownership_layer_transfer_solution(
-        trade_prices_list: List[List[int]],
-        new_pubkey: G1Element,
-        conditions: List
+    trade_prices_list: List[List[int]], new_pubkey: G1Element, conditions: List
 ) -> Program:
     log.debug(
         "Creating a transfer solution with: trade_price:%s pubkey:%s",
@@ -262,6 +262,7 @@ def create_ownership_layer_transfer_solution(
     )
     puzhash = STANDARD_PUZZLE_MOD.curry(new_pubkey).get_tree_hash()
     graftroot_puz = NFT_GRAFTROOT_TRANSFER_MOD.curry(conditions, trade_prices_list)
+    log.debug("Graftroot hash: %s", graftroot_puz.get_tree_hash())
     solution = Program.to(
         [
             [solution_for_delegated_puzzle(graftroot_puz, Program.to([new_pubkey, puzhash, 1]))],

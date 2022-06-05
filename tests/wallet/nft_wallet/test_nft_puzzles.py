@@ -9,6 +9,7 @@ from chia.wallet.nft_wallet import uncurry_nft
 from chia.wallet.nft_wallet.nft_puzzles import (
     create_full_puzzle,
     create_nft_layer_puzzle_with_curry_params,
+    create_ownership_layer_transfer_solution,
     recurry_nft_puzzle,
 )
 from chia.wallet.puzzles.cat_loader import CAT_MOD
@@ -27,6 +28,7 @@ LAUNCHER_PUZZLE_HASH = LAUNCHER_PUZZLE.get_tree_hash()
 NFT_STATE_LAYER_MOD_HASH = NFT_STATE_LAYER_MOD.get_tree_hash()
 SINGLETON_MOD_HASH = SINGLETON_MOD.get_tree_hash()
 OFFER_MOD = load_clvm("settlement_payments.clvm")
+NFT_GRAFTROOT_TRANSFER_MOD = load_clvm("nft_graftroot_transfer.clvm")
 
 LAUNCHER_ID = Program.to(b"launcher-id").get_tree_hash()
 NFT_METADATA_UPDATER_DEFAULT = load_clvm("nft_metadata_updater_default.clvm")
@@ -58,8 +60,9 @@ def make_a_new_solution() -> Tuple[bytes, Program]:
     return destination, solution
 
 
-def make_a_new_ownership_layer_puzzle() -> Tuple[Program, Program]:
-    pubkey = int_to_public_key(1)
+def make_a_new_ownership_layer_puzzle(pubkey=None) -> Tuple[Program, Program]:
+    if not pubkey:
+        pubkey = int_to_public_key(1)
     innerpuz = puzzle_for_pk(pubkey)
     old_did = Program.to("test_2").get_tree_hash()
     nft_id = Program.to("nft_id")
@@ -102,7 +105,7 @@ def get_updated_nft_puzzle(puzzle: Program, solution: Program) -> bytes32:
     raise ValueError("No create coin condition found")
 
 
-def test_transfer_puzzle_builder() -> None:
+def test_mint_puzzle_builder() -> None:
     metadata = [
         ("u", ["https://www.chia.net/img/branding/chia-logo.svg"]),
         ("h", 0xD4584AD463139FA8C0D9F68F4B59F185),
@@ -126,3 +129,29 @@ def test_transfer_puzzle_builder() -> None:
         Program.to(metadata), NFT_METADATA_UPDATER_DEFAULT.get_tree_hash(), ol_puzzle
     )
     assert clvm_puzzle_hash == py_puzzle.get_tree_hash()
+
+
+def test_transfer_solution() -> None:
+    metadata = [
+        ("u", ["https://www.chia.net/img/branding/chia-logo.svg"]),
+        ("h", 0xD4584AD463139FA8C0D9F68F4B59F185),
+    ]
+    owner_pk = int_to_public_key(10)
+    destination = int_to_public_key(2)
+    trade_prices_list = [[200]]
+    solution = create_ownership_layer_transfer_solution(trade_prices_list, destination, [[61, 0xCAFEF00D]])
+    # _, solution = make_a_new_solution()
+    p2_puzzle, ownership_puzzle = make_a_new_ownership_layer_puzzle(owner_pk)
+    clvm_nft_puzzle = make_a_new_nft_puzzle(ownership_puzzle, Program.to(metadata))
+    conditions = clvm_nft_puzzle.run(solution)
+
+    # agg sig for owner to sign graftroot
+    graftroot_puz = NFT_GRAFTROOT_TRANSFER_MOD.curry([[61, 0xCAFEF00D]], trade_prices_list)
+    print(disassemble(conditions))
+    assert conditions.at("rff").as_int() == 50
+    assert conditions.at("rfrf").atom == bytes(owner_pk)
+    assert conditions.at("rfrrf").atom == bytes(graftroot_puz.get_tree_hash())
+    assert conditions.as_python()[-1][1] == bytes.fromhex("00cafef00d")
+    # destination agg sig
+    assert conditions.at("rrrrff").as_int() == 50
+    assert conditions.at("rrrrfrf").atom == bytes(destination)

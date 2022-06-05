@@ -49,7 +49,12 @@
           (sha256 ONE CAT_MOD_HASH)
       )
   )
-
+  (defun merge_list (list_a list_b)
+    (if list_a
+      (c (f list_a) (merge_list (r list_a) list_b))
+      list_b
+    )
+  )
   (defun round_down_to_even (value)
       (if (logand value ONE) (- value ONE) value)
   )
@@ -98,17 +103,16 @@
       (if conditions
         (if (= (f (f conditions)) CREATE_COIN)
           (if (logand (f (r (r (f conditions)))) ONE)
-            (check_found_values Current_Owner P2_DELEGATED_PUZZLE_OR_HIDDEN_PUZZLE_MOD_HASH SINGLETON_STRUCT ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE SETTLEMENT_MOD_HASH CAT_MOD_HASH (f conditions) new_owner_condition)
-            (c (f conditions) (loop_through_conditions P2_DELEGATED_PUZZLE_OR_HIDDEN_PUZZLE_MOD_HASH SINGLETON_STRUCT ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE SETTLEMENT_MOD_HASH CAT_MOD_HASH Current_Owner (r conditions) odd_create_coin new_owner_condition))
+            (merge_list (check_found_values Current_Owner P2_DELEGATED_PUZZLE_OR_HIDDEN_PUZZLE_MOD_HASH SINGLETON_STRUCT ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE SETTLEMENT_MOD_HASH CAT_MOD_HASH (f conditions) new_owner_condition) (r conditions))
+            (c (f conditions) (loop_through_conditions Current_Owner P2_DELEGATED_PUZZLE_OR_HIDDEN_PUZZLE_MOD_HASH SINGLETON_STRUCT ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE SETTLEMENT_MOD_HASH CAT_MOD_HASH (r conditions) odd_create_coin new_owner_condition))
           )
-          (loop_through_conditions Current_Owner P2_DELEGATED_PUZZLE_OR_HIDDEN_PUZZLE_MOD_HASH SINGLETON_STRUCT ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE SETTLEMENT_MOD_HASH CAT_MOD_HASH (r conditions) odd_create_coin new_owner_condition)
+          (c (f conditions) (loop_through_conditions Current_Owner P2_DELEGATED_PUZZLE_OR_HIDDEN_PUZZLE_MOD_HASH SINGLETON_STRUCT ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE SETTLEMENT_MOD_HASH CAT_MOD_HASH (r conditions) odd_create_coin new_owner_condition))
         )
-        (x "no create coins")
+        (x)
       )
     )
 
     ; main
-
     (list new_owner 0 (loop_through_conditions Current_Owner P2_DELEGATED_PUZZLE_OR_HIDDEN_PUZZLE_MOD_HASH SINGLETON_STRUCT ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE SETTLEMENT_MOD_HASH CAT_MOD_HASH conditions 0 (list new_owner trade_price new_pk tp_solution)))
 
 )
