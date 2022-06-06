@@ -288,11 +288,8 @@ def create_graftroot_transfer_puzzle(
 
 
 def create_incomplete_graftroot_transfer_solution(graftroot_puzzle: Program) -> Program:
-    # solution = Program.to([[], [], 1])
-    # return Program.to([[], graftroot_puzzle, solution])
-    blank_pk = G1Element.generator()
-    blank_ph = STANDARD_PUZZLE_MOD.curry(blank_pk).get_tree_hash()
-    return Program.to([[], graftroot_puzzle, [blank_pk, blank_ph, 1]])
+    solution = Program.to([])
+    return Program.to([[], graftroot_puzzle, solution])
 
 
 def create_ownership_layer_transfer_solution_graftroot(

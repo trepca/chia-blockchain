@@ -432,6 +432,7 @@ class NFTWallet:
         record: Optional[DerivationRecord] = None
         # Create inner solution for eve spend
         if did_id is not None:
+            self.log.debug("Using DID: %r", did_id)
             record = await self.wallet_state_manager.puzzle_store.get_derivation_record_for_puzzle_hash(
                 p2_inner_puzzle.get_tree_hash()
             )
@@ -932,7 +933,7 @@ class NFTWallet:
 
         solver = {"coin": coin_bytes, "parent_spend": bytes(parent_spend)}
         gf_solution = create_ownership_layer_transfer_solution_graftroot(trade_prices_list,
-                                                                         G1Element.generator(),
+                                                                         [],
                                                                          [])
         singleton_solution = solve_puzzle(nft_driver, solver, graftroot_puz, graftroot_sol)
         return singleton_solution
@@ -959,7 +960,6 @@ class NFTWallet:
         first = True
         for coin_info in nft_coins:
             condition_list = [
-                [51, Offer.ph(), 1, [Offer.ph()]],
             ]
             new_pubkey = None
             if first:
@@ -974,7 +974,6 @@ class NFTWallet:
             coin_spends.append(CoinSpend(coin_info.coin, coin_info.full_puzzle, sol))
 
         sb = SpendBundle(coin_spends, G2Element())
-        sb.debug()
         return sb
 
     async def sign_did_offer_spend_bundle():

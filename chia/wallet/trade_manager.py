@@ -70,9 +70,9 @@ class TradeManager:
 
     @staticmethod
     async def create(
-        wallet_state_manager: Any,
-        db_wrapper: DBWrapper,
-        name: str = None,
+            wallet_state_manager: Any,
+            db_wrapper: DBWrapper,
+            name: str = None,
     ):
         self = TradeManager()
         if name:
@@ -89,7 +89,7 @@ class TradeManager:
         return records
 
     async def get_coins_of_interest(
-        self,
+            self,
     ) -> Dict[bytes32, Coin]:
         """
         Returns list of coins we want to check if they are included in filter,
@@ -209,7 +209,7 @@ class TradeManager:
         self.wallet_state_manager.state_changed("offer_cancelled")
 
     async def cancel_pending_offer_safely(
-        self, trade_id: bytes32, fee: uint64 = uint64(0)
+            self, trade_id: bytes32, fee: uint64 = uint64(0)
     ) -> Optional[List[TransactionRecord]]:
         """This will create a transaction that includes coins that were offered"""
         self.log.info(f"Secure-Cancel pending offer with id trade_id {trade_id.hex()}")
@@ -285,11 +285,11 @@ class TradeManager:
         self.wallet_state_manager.state_changed("offer_added")
 
     async def create_offer_for_ids(
-        self,
-        offer: Dict[Union[int, bytes32], Union[Solver, int]],
-        driver_dict: Optional[Dict[bytes32, PuzzleInfo]] = None,
-        fee: uint64 = uint64(0),
-        validate_only: bool = False,
+            self,
+            offer: Dict[Union[int, bytes32], Union[Solver, int]],
+            driver_dict: Optional[Dict[bytes32, PuzzleInfo]] = None,
+            fee: uint64 = uint64(0),
+            validate_only: bool = False,
     ) -> Tuple[bool, Optional[TradeRecord], Optional[str]]:
         if driver_dict is None:
             driver_dict = {}
@@ -318,10 +318,10 @@ class TradeManager:
         return success, trade_offer, error
 
     async def _create_offer_for_ids(
-        self,
-        offer_dict: Dict[Union[int, bytes32], Union[Solver, int]],
-        driver_dict: Optional[Dict[bytes32, PuzzleInfo]] = None,
-        fee: uint64 = uint64(0),
+            self,
+            offer_dict: Dict[Union[int, bytes32], Union[Solver, int]],
+            driver_dict: Optional[Dict[bytes32, PuzzleInfo]] = None,
+            fee: uint64 = uint64(0),
     ) -> Tuple[bool, Optional[Offer], Optional[str]]:
         """
         Offer is dictionary of wallet ids and amounts/Solvers
@@ -333,6 +333,7 @@ class TradeManager:
             requested_payments: Dict[Optional[bytes32], List[Payment]] = {}
             fee_left_to_pay: uint64 = fee
             wallet_paying_fee: Union[int, bytes32]
+            breakpoint()
             for id, solver in offer_dict.items():
                 if isinstance(solver, int) and (solver > 0):  # type: ignore
                     if isinstance(id, int):
@@ -425,6 +426,7 @@ class TradeManager:
                 all_transactions.append(bundle)
 
             total_spend_bundle = SpendBundle.aggregate(all_transactions)
+            self.log.error("Creating an offer with payments %s and bundle: %s", notarized_payments, total_spend_bundle)
             offer = Offer(notarized_payments, total_spend_bundle, driver_dict)
             return True, offer, None
 
