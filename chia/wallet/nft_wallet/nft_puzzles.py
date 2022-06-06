@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from blspy import G1Element
 from clvm.casts import int_from_bytes
@@ -281,9 +281,19 @@ def create_ownership_layer_transfer_solution(
     return solution
 
 
+def create_graftroot_transfer_puzzle(
+    trade_prices_list: List[List[Union[int, bytes32]]], conditions: List[Any]
+) -> Program:
+    return NFT_GRAFTROOT_TRANSFER_MOD.curry(conditions, trade_prices_list)
+
+
+def create_incomplete_graftroot_transfer_solution(graftroot_puzzle: Program, destination: bytes32) -> Program:
+    solution = Program.to([[], [], 1])
+    return Program.to([[], graftroot_puzzle, solution])
+
 
 def create_ownership_layer_transfer_solution_graftroot(
-    trade_prices_list: List[List[int]], new_pubkey: G1Element, conditions: List
+    trade_prices_list: List[List[Union[int, bytes32]]], new_pubkey: Optional[G1Element], conditions: List[Any]
 ) -> Program:
     log.debug(
         "Creating a transfer solution with: trade_price:%s pubkey:%s",

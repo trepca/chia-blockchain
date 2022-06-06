@@ -26,12 +26,15 @@ from chia.wallet.nft_wallet.nft_puzzles import (
     NFT_METADATA_UPDATER,
     NFT_STATE_LAYER_MOD_HASH,
     NFT_TRANSFER_PROGRAM_DEFAULT,
+    create_graftroot_transfer_puzzle,
+    create_incomplete_graftroot_transfer_solution,
     create_ownership_layer_puzzle,
     create_ownership_layer_transfer_solution,
+    create_ownership_layer_transfer_solution_graftroot,
     get_metadata_and_phs,
 )
 from chia.wallet.nft_wallet.uncurry_nft import UncurriedNFT
-from chia.wallet.outer_puzzles import AssetType, get_inner_puzzle, match_puzzle
+from chia.wallet.outer_puzzles import AssetType, get_inner_puzzle, match_puzzle, solve_puzzle
 from chia.wallet.payment import Payment
 from chia.wallet.puzzle_drivers import PuzzleInfo, Solver
 from chia.wallet.puzzles.load_clvm import load_clvm
@@ -900,6 +903,78 @@ class NFTWallet:
 
         return (unsigned_spend_bundle, chia_tx)
 
+    async def create_solution_for_offered_nft(
+        self, coin_info: NFTCoinInfo, trade_prices_list: List[Any], condition_list: List[Any]
+    ) -> Program:
+        coin = coin_info.coin
+        graftroot_puz = create_graftroot_transfer_puzzle(trade_prices_list, condition_list)
+        graftroot_sol = create_incomplete_graftroot_transfer_solution(
+            graftroot_puz,
+            Offer.ph(),
+        )
+        unft = UncurriedNFT.uncurry(coin_info.full_puzzle)
+        nft_driver = match_puzzle(coin_info.full_puzzle)
+        parent_coin_id = coin.parent_coin_info
+        # get the parent spend from past txns
+        all_txns = await self.wallet_state_manager.get_all_transactions(self.id())
+        for tx in all_txns:
+            for c in tx.removals:
+                if c.name() == parent_coin_id:
+                    parent_tx = tx
+                    break
+        assert parent_tx is not None
+        for cs in parent_tx.spend_bundle.coin_spends:
+            if cs.coin.name() == parent_coin_id:
+                parent_spend = cs
+                break
+        assert parent_spend is not None
+        coin_bytes = b"".join([coin.parent_coin_info, coin.puzzle_hash, bytes(uint64(coin.amount))])
+
+        solver = {"coin": coin_bytes, "parent_spend": bytes(parent_spend)}
+        singleton_solution = solve_puzzle(nft_driver, solver, graftroot_puz, graftroot_sol)
+        return singleton_solution
+
+    async def generate_did_nft_offer_spend_bundle(
+        self,
+        trade_prices_list: List[List[Union[int, bytes32]]],
+        coins: Set[Coin] = None,
+        fee: uint64 = uint64(0),
+        memos: Optional[List[List[bytes]]] = None,
+        coin_announcements_to_consume: Optional[Set[Announcement]] = None,
+        puzzle_announcements_to_consume: Optional[Set[Announcement]] = None,
+    ) -> Optional[SpendBundle]:
+        """
+        Generate the spend bundles needed for offering a DID NFT
+        """
+        if coins is None:
+            raise ValueError("No NFT coins being offered")
+        else:
+            nft_coins = [c for c in self.nft_wallet_info.my_nft_coins if c.coin in coins]
+
+        chia_tx = None
+        coin_spends = []
+        first = True
+        for coin_info in nft_coins:
+            condition_list = [
+                [51, Offer.ph(), coin_info.coin.amount, [Offer.ph()]],
+            ]
+            new_pubkey = None
+            if first:
+                first = False
+                if fee > 0:
+                    chia_tx = await self.create_tandem_xch_tx(fee)
+                    sol = await self.create_solution_for_offered_nft(coin_info, trade_prices_list, condition_list)
+                else:
+                    sol = await self.create_solution_for_offered_nft(coin_info, trade_prices_list, condition_list)
+            else:
+                sol = await self.create_solution_for_offered_nft(coin_info, trade_prices_list, condition_list)
+            coin_spends.append(CoinSpend(coin_info.coin, coin_info.full_puzzle, sol))
+
+        # breakpoint()
+
+    async def sign_did_offer_spend_bundle():
+        pass
+
     async def create_offer_transactions(
         self, amount: Union[Solver, uint64], coins: List[Coin], announcements: Set[Announcement], fee: uint64
     ) -> SpendBundle:
@@ -927,7 +1002,13 @@ class NFTWallet:
                         trade_prices_list.append([val, key])
                     elif key is None:
                         trade_prices_list.append([val, 0])
-            # breakpoint()
+
+            sb = await self.generate_did_nft_offer_spend_bundle(
+                trade_prices_list,
+                coins=set(coins),
+                fee=fee,
+            )
+
             # raise ValueError("No support for non-standard offers yet")
             return SpendBundle([], G2Element())
 
