@@ -987,9 +987,9 @@ async def test_nft_offer_with_did_wallet(two_wallet_nodes: Any, trusted: Any) ->
 
     offer_did_nft_for_xch = {nft_to_offer_asset_id: trade_solver}
 
-    # success, trade_make, error = await trade_manager_maker.create_offer_for_ids(
-    #     offer_did_nft_for_xch, driver_dict, fee=maker_fee
-    # )
+    success, trade_make, error = await trade_manager_maker.create_offer_for_ids(
+        offer_did_nft_for_xch, driver_dict, fee=maker_fee
+    )
 
     # await asyncio.sleep(1)
     # assert success is True

@@ -31,7 +31,7 @@ from chia.wallet.nft_wallet.nft_puzzles import (
     get_metadata_and_phs,
 )
 from chia.wallet.nft_wallet.uncurry_nft import UncurriedNFT
-from chia.wallet.outer_puzzles import AssetType, get_inner_puzzle, match_puzzle, solve_puzzle
+from chia.wallet.outer_puzzles import AssetType, get_inner_puzzle, match_puzzle
 from chia.wallet.payment import Payment
 from chia.wallet.puzzle_drivers import PuzzleInfo, Solver
 from chia.wallet.puzzles.load_clvm import load_clvm
@@ -440,7 +440,7 @@ class NFTWallet:
             did_inner_hash, did_bundle = await self.get_did_approval_info(launcher_coin.name())
             pubkey = record.pubkey
             self.log.debug("Going to use this pubkey for NFT mint: %s", pubkey)
-            innersol = create_ownership_layer_transfer_solution(did_id, did_inner_hash, [], pubkey)
+            innersol = create_ownership_layer_transfer_solution(bytes32(did_id), did_inner_hash, [], pubkey)
             bundles_to_agg.append(did_bundle)
 
             self.log.debug("Created an inner DID NFT solution: %s", disassemble(innersol))
@@ -883,11 +883,11 @@ class NFTWallet:
                 )
 
             nft_layer_solution = Program.to([innersol, coin_info.coin.amount])
-
+            assert isinstance(coin_info.lineage_proof, LineageProof)
             singleton_solution = Program.to(
                 [coin_info.lineage_proof.to_program(), coin_info.coin.amount, nft_layer_solution]
             )
-            
+
             coin_spend = CoinSpend(coin_info.coin, coin_info.full_puzzle, singleton_solution)
             coin_spends.append(coin_spend)
 
@@ -918,9 +918,18 @@ class NFTWallet:
             ]
             return SpendBundle.aggregate(spend_bundles)
         else:
-            raise ValueError("No support for non-standard offers yet")
-        
-        
+            # make trade_prices_list for signing
+            solver = amount
+            trade_prices_list = []
+            for trade in solver.info["trade_prices_list"]:
+                for key, val in trade.items():
+                    if key is not None and key != "offered":
+                        trade_prices_list.append([val, key])
+                    elif key is None:
+                        trade_prices_list.append([val, 0])
+            # breakpoint()
+            # raise ValueError("No support for non-standard offers yet")
+            return SpendBundle([], G2Element())
 
     async def fix_incomplete_offer(self, offer: Offer, incomplete_spends: List[CoinSpend]) -> Offer:
         spends_to_fix: List[CoinSpend] = []
@@ -929,7 +938,9 @@ class NFTWallet:
             # nft_info = match_puzzle(spend.puzzle_reveal.to_program())
             unft = UncurriedNFT.uncurry(spend.puzzle_reveal.to_program())
             owner_info = match_puzzle(unft.inner_puzzle)
+            assert isinstance(owner_info, PuzzleInfo)
             inner_puzzle = get_inner_puzzle(owner_info, unft.inner_puzzle)
+            assert isinstance(inner_puzzle, Program)
             mod, args = inner_puzzle.uncurry()
 
             if mod == NFT_GRAFTROOT_TRANSFER_MOD:
@@ -944,14 +955,16 @@ class NFTWallet:
             new_ph = new_puzzle.get_tree_hash()
             my_amount = spend.coin.amount
 
-            graftroot_inner_solution = Program.to([pk, new_ph, my_amount])
+            graftroot_inner_solution = Program.to([pk, new_ph, my_amount])  # noqa
             # TODO: reach into the appropriate wallets to add royalty payments to the offer spend bundle
 
             # (be sure to exclude coins from selection that are already in the offer)
             # TODO: Add a signature of the trade prices list
             unft = UncurriedNFT.uncurry(spend.puzzle_reveal.to_program())
             owner_info = match_puzzle(unft.inner_puzzle)
+            assert isinstance(owner_info, PuzzleInfo)
             inner_puzzle = get_inner_puzzle(owner_info, unft.inner_puzzle)
+            assert isinstance(inner_puzzle, Program)
             mod, args = inner_puzzle.uncurry()
             conditions, trade_price_list = args
             AugSchemeMPL.sign(dr.sk, trade_price_list)
