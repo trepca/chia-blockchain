@@ -4,10 +4,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from blspy import G2Element
 from clvm_tools.binutils import disassemble
 
-from chia.types.blockchain_format.sized_bytes import bytes32
+from chia.types.announcement import Announcement
 from chia.types.blockchain_format.coin import Coin, coin_as_list
 from chia.types.blockchain_format.program import Program
-from chia.types.announcement import Announcement
+from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_spend import CoinSpend
 from chia.types.spend_bundle import SpendBundle
 from chia.util.bech32m import bech32_decode, bech32_encode, convertbits
@@ -52,8 +52,8 @@ class Offer:
 
     @staticmethod
     def notarize_payments(
-        requested_payments: Dict[Optional[bytes32], List[Payment]],  # `None` means you are requesting XCH
-        coins: List[Coin],
+            requested_payments: Dict[Optional[bytes32], List[Payment]],  # `None` means you are requesting XCH
+            coins: List[Coin],
     ) -> Dict[Optional[bytes32], List[NotarizedPayment]]:
         # This sort should be reproducible in CLVM with `>s`
         sorted_coins: List[Coin] = sorted(coins, key=Coin.name)
@@ -72,7 +72,7 @@ class Offer:
     # The announcements returned from this function must be asserted in whatever spend bundle is created by the wallet
     @staticmethod
     def calculate_announcements(
-        notarized_payments: Dict[Optional[bytes32], List[NotarizedPayment]], driver_dict: Dict[bytes32, PuzzleInfo]
+            notarized_payments: Dict[Optional[bytes32], List[NotarizedPayment]], driver_dict: Dict[bytes32, PuzzleInfo]
     ) -> List[Announcement]:
         announcements: List[Announcement] = []
         for asset_id, payments in notarized_payments.items():
@@ -123,7 +123,7 @@ class Offer:
         final_list: List[CoinSpend] = []
         for cs in self.bundle.coin_spends:
             try:
-                cs.additions()
+                print("ADDITIONS WOOP: %r" % cs.additions())
             except Exception:
                 final_list.append(cs)
         return final_list
@@ -347,10 +347,10 @@ class Offer:
                     for sibling_coin in offered_coins:
                         if sibling_coin != coin:
                             siblings += (
-                                "0x"
-                                + sibling_coin.parent_coin_info.hex()
-                                + sibling_coin.puzzle_hash.hex()
-                                + bytes(sibling_coin.amount).hex()
+                                    "0x"
+                                    + sibling_coin.parent_coin_info.hex()
+                                    + sibling_coin.puzzle_hash.hex()
+                                    + bytes(sibling_coin.amount).hex()
                             )
                             sibling_spends += "0x" + bytes(coin_to_spend_dict[sibling_coin]).hex() + ")"
                             sibling_puzzles += disassembled_offer_mod
@@ -365,9 +365,9 @@ class Offer:
                         Solver(
                             {
                                 "coin": "0x"
-                                + coin.parent_coin_info.hex()
-                                + coin.puzzle_hash.hex()
-                                + bytes(coin.amount).hex(),
+                                        + coin.parent_coin_info.hex()
+                                        + coin.puzzle_hash.hex()
+                                        + bytes(coin.amount).hex(),
                                 "parent_spend": "0x" + bytes(coin_to_spend_dict[coin]).hex(),
                                 "siblings": siblings,
                                 "sibling_spends": sibling_spends,

@@ -33,7 +33,7 @@ NFT_GRAFTROOT_TRANSFER_MOD = load_clvm("nft_graftroot_transfer.clvm")
 
 
 def create_nft_layer_puzzle_with_curry_params(
-    metadata: Program, metadata_updater_hash: bytes32, inner_puzzle: Program
+        metadata: Program, metadata_updater_hash: bytes32, inner_puzzle: Program
 ) -> Program:
     """Curries params into nft_state_layer.clvm
 
@@ -72,7 +72,7 @@ def create_full_puzzle_with_nft_puzzle(singleton_id: bytes32, inner_puzzle: Prog
 
 
 def create_full_puzzle(
-    singleton_id: bytes32, metadata: Program, metadata_updater_puzhash: bytes32, inner_puzzle: Program
+        singleton_id: bytes32, metadata: Program, metadata_updater_puzhash: bytes32, inner_puzzle: Program
 ) -> Program:
     log.debug(
         "Creating full NFT puzzle with: \n%r\n%r\n%r\n%r",
@@ -186,11 +186,11 @@ def update_metadata(metadata: Program, update_condition: Program) -> Program:
 
 
 def create_ownership_layer_puzzle(
-    nft_id: bytes32,
-    did_id: bytes,
-    p2_puzzle: Program,
-    percentage: uint16,
-    royalty_puzzle_hash: Optional[bytes32] = None,
+        nft_id: bytes32,
+        did_id: bytes,
+        p2_puzzle: Program,
+        percentage: uint16,
+        royalty_puzzle_hash: Optional[bytes32] = None,
 ) -> Program:
     log.debug(
         "Creating ownership layer puzzle with NFT_ID: %s DID_ID: %s Royalty_Percentage: %d P2_puzzle: %s",
@@ -219,10 +219,10 @@ def create_ownership_layer_puzzle(
 
 
 def create_ownership_layer_mint_solution(
-    new_did: bytes,
-    new_did_inner_hash: bytes32,
-    trade_prices_list: List[List[int]],
-    new_pubkey: G1Element,
+        new_did: bytes,
+        new_did_inner_hash: bytes32,
+        trade_prices_list: List[List[int]],
+        new_pubkey: G1Element,
 ) -> Program:
     log.debug(
         "Creating a mint solution with: DID:%s Inner_puzhash:%s trade_price:%s pubkey:%s",
@@ -253,11 +253,11 @@ def create_ownership_layer_mint_solution(
 
 
 def create_ownership_layer_transfer_solution(
-    new_did: bytes32,
-    new_did_inner_hash: bytes32,
-    trade_prices_list: List[List[int]],
-    new_pubkey: G1Element,
-    conditions: List[Any] = [],
+        new_did: bytes32,
+        new_did_inner_hash: bytes32,
+        trade_prices_list: List[List[int]],
+        new_pubkey: G1Element,
+        conditions: List[Any] = [],
 ) -> Program:
     log.debug(f"Creating a transfer solution with: {new_did} {new_did_inner_hash} {trade_prices_list} {new_pubkey}")
     puzhash = STANDARD_PUZZLE_MOD.curry(new_pubkey).get_tree_hash()
@@ -282,18 +282,21 @@ def create_ownership_layer_transfer_solution(
 
 
 def create_graftroot_transfer_puzzle(
-    trade_prices_list: List[List[Union[int, bytes32]]], conditions: List[Any]
+        trade_prices_list: List[List[Union[int, bytes32]]], conditions: List[Any]
 ) -> Program:
     return NFT_GRAFTROOT_TRANSFER_MOD.curry(conditions, trade_prices_list)
 
 
-def create_incomplete_graftroot_transfer_solution(graftroot_puzzle: Program, destination: bytes32) -> Program:
-    solution = Program.to([[], [], 1])
-    return Program.to([[], graftroot_puzzle, solution])
+def create_incomplete_graftroot_transfer_solution(graftroot_puzzle: Program) -> Program:
+    # solution = Program.to([[], [], 1])
+    # return Program.to([[], graftroot_puzzle, solution])
+    blank_pk = G1Element.generator()
+    blank_ph = STANDARD_PUZZLE_MOD.curry(blank_pk).get_tree_hash()
+    return Program.to([[], graftroot_puzzle, [blank_pk, blank_ph, 1]])
 
 
 def create_ownership_layer_transfer_solution_graftroot(
-    trade_prices_list: List[List[Union[int, bytes32]]], new_pubkey: Optional[G1Element], conditions: List[Any]
+        trade_prices_list: List[List[Union[int, bytes32]]], new_pubkey: Optional[G1Element], conditions: List[Any]
 ) -> Program:
     log.debug(
         "Creating a transfer solution with: trade_price:%s pubkey:%s",

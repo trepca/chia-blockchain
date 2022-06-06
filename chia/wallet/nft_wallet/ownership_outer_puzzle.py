@@ -19,7 +19,7 @@ def match_ownership_layer_puzzle(puzzle: Program) -> Tuple[bool, List[Program]]:
 
 
 def puzzle_for_ownership_layer(
-    current_owner: Union[Program, bytes], transfer_program: Program, inner_puzzle: Program
+        current_owner: Union[Program, bytes], transfer_program: Program, inner_puzzle: Program
 ) -> Program:
     return OWNERSHIP_LAYER_MOD.curry(OWNERSHIP_LAYER_MOD.get_tree_hash(), current_owner, transfer_program, inner_puzzle)
 

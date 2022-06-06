@@ -54,11 +54,15 @@ class SingletonOuterPuzzle:
         coin: Coin = Coin(bytes32(coin_bytes[0:32]), bytes32(coin_bytes[32:64]), uint64.from_bytes(coin_bytes[64:72]))
         parent_spend: CoinSpend = CoinSpend.from_bytes(solver["parent_spend"])
         parent_coin: Coin = parent_spend.coin
+        print("singleton constructor before")
+        print(inner_solution)
         if constructor.also() is not None:
             inner_solution = self._solve(constructor.also(), solver, inner_puzzle, inner_solution)
         matched, curried_args = match_singleton_puzzle(parent_spend.puzzle_reveal.to_program())
         assert matched
         _, parent_inner_puzzle = curried_args
+        print("singleton constructor")
+        print(inner_solution)
         return solution_for_singleton(
             LineageProof(parent_coin.parent_coin_info, parent_inner_puzzle.get_tree_hash(), parent_coin.amount),
             coin.amount,

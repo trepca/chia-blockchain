@@ -58,7 +58,7 @@
       (if (= (f (f conditions_loop)) -24)
         (if (= (sha256tree1 (f (r (f conditions_loop)))) METADATA_UPDATER_PUZZLE_HASH)
           (a (f (r (f conditions_loop))) (list CURRENT_METADATA METADATA_UPDATER_PUZZLE_HASH (f (r (r (f conditions_loop))))))
-          (x)
+          (x "HEY!")
         )
         (check_for_metadata_prog_reveal METADATA_UPDATER_PUZZLE_HASH CURRENT_METADATA (r conditions_loop))
       )

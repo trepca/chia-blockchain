@@ -10,7 +10,7 @@ from chia.wallet.nft_wallet.nft_puzzles import (
     create_full_puzzle,
     create_nft_layer_puzzle_with_curry_params,
     create_ownership_layer_transfer_solution_graftroot,
-    recurry_nft_puzzle,
+    recurry_nft_puzzle, create_full_puzzle_with_nft_puzzle,
 )
 from chia.wallet.puzzles.cat_loader import CAT_MOD
 from chia.wallet.puzzles.load_clvm import load_clvm
@@ -155,3 +155,14 @@ def test_transfer_solution() -> None:
     # destination agg sig
     assert conditions.at("rrrrff").as_int() == 50
     assert conditions.at("rrrrfrf").atom == bytes(destination)
+    # test full stack
+
+    py_puzzle = create_full_puzzle_with_nft_puzzle(bytes([0] * 32), clvm_nft_puzzle)
+    fullsol = Program.to([
+        [bytes([0] * 32), bytes([0] * 32), 1],
+        1,
+        solution])
+    conds = py_puzzle.run(fullsol)
+    assert conds
+    assert conds.first().first().as_int() == 73
+
