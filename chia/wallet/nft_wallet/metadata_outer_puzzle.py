@@ -63,7 +63,7 @@ class MetadataOuterPuzzle:
         return puzzle_for_metadata_layer(constructor["metadata"], constructor["updater_hash"], inner_puzzle)
 
     def solve(self, constructor: PuzzleInfo, solver: Solver, inner_puzzle: Program, inner_solution: Program) -> Program:
-        coin_bytes: bytes = solver.info["coin"]
+        coin_bytes: bytes = solver["coin"]
         coin: Coin = Coin(bytes32(coin_bytes[0:32]), bytes32(coin_bytes[32:64]), uint64.from_bytes(coin_bytes[64:72]))
         if constructor.also() is not None:
             inner_solution = self._solve(constructor.also(), solver, inner_puzzle, inner_solution)

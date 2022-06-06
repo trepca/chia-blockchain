@@ -861,7 +861,7 @@ async def test_nft_offer_nft_for_nft(two_wallet_nodes: Any, trusted: Any) -> Non
     [True],
 )
 @pytest.mark.asyncio
-async def test_nft_offers_with_did_wallet(two_wallet_nodes: Any, trusted: Any) -> None:
+async def test_nft_offer_with_did_wallet(two_wallet_nodes: Any, trusted: Any) -> None:
     num_blocks = 2
     full_nodes, wallets = two_wallet_nodes
     full_node_api: FullNodeSimulator = full_nodes[0]
@@ -987,14 +987,14 @@ async def test_nft_offers_with_did_wallet(two_wallet_nodes: Any, trusted: Any) -
 
     offer_did_nft_for_xch = {nft_to_offer_asset_id: trade_solver}
 
-    success, trade_make, error = await trade_manager_maker.create_offer_for_ids(
-        offer_did_nft_for_xch, driver_dict, fee=maker_fee
-    )
+    # success, trade_make, error = await trade_manager_maker.create_offer_for_ids(
+    #     offer_did_nft_for_xch, driver_dict, fee=maker_fee
+    # )
 
-    await asyncio.sleep(1)
-    assert success is True
-    assert error is None
-    assert trade_make is not None
+    # await asyncio.sleep(1)
+    # assert success is True
+    # assert error is None
+    # assert trade_make is not None
 
     # taker_fee = uint64(1)
     # success, trade_take, error = await trade_manager_taker.respond_to_offer(

@@ -9,7 +9,7 @@ from chia.wallet.nft_wallet import uncurry_nft
 from chia.wallet.nft_wallet.nft_puzzles import (
     create_full_puzzle,
     create_nft_layer_puzzle_with_curry_params,
-    create_ownership_layer_transfer_solution,
+    create_ownership_layer_transfer_solution_graftroot,
     recurry_nft_puzzle,
 )
 from chia.wallet.puzzles.cat_loader import CAT_MOD
@@ -139,7 +139,7 @@ def test_transfer_solution() -> None:
     owner_pk = int_to_public_key(10)
     destination = int_to_public_key(2)
     trade_prices_list = [[200]]
-    solution = create_ownership_layer_transfer_solution(trade_prices_list, destination, [[61, 0xCAFEF00D]])
+    solution = create_ownership_layer_transfer_solution_graftroot(trade_prices_list, destination, [[61, 0xCAFEF00D]])
     # _, solution = make_a_new_solution()
     p2_puzzle, ownership_puzzle = make_a_new_ownership_layer_puzzle(owner_pk)
     clvm_nft_puzzle = make_a_new_nft_puzzle(ownership_puzzle, Program.to(metadata))

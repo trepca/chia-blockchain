@@ -882,48 +882,12 @@ class NFTWallet:
                     primaries=[],
                 )
 
-            # If DID
-            unft = UncurriedNFT.uncurry(coin_info.full_puzzle)
-            nft_info = match_puzzle(coin_info.full_puzzle)
-            owner_info = match_puzzle(unft.inner_puzzle)
-            inner_puzzle = get_inner_puzzle(owner_info, unft.inner_puzzle)
+            nft_layer_solution = Program.to([innersol, coin_info.coin.amount])
 
-            # solver
-            coin = coin_info.coin
-            parent_coin_id = coin_info.coin.parent_coin_info
-
-            # get the parent spend from past txns
-            all_txns = await self.wallet_state_manager.get_all_transactions(self.id())
-            for tx in all_txns:
-                for c in tx.removals:
-                    if c.name() == parent_coin_id:
-                        parent_tx = tx
-                        break
-            assert parent_tx is not None
-            for cs in parent_tx.spend_bundle.coin_spends:
-                if cs.coin.name() == parent_coin_id:
-                    parent_spend = cs
-                    break
-            assert parent_spend is not None
-
-            coin_bytes = b"".join([coin.parent_coin_info, coin.puzzle_hash, bytes(uint64(coin.amount))])
-
-            solver = Solver({"coin": coin_bytes, "parent_spend": bytes(parent_spend)})
-
-            singleton_solution = solve_puzzle(nft_info, solver, inner_puzzle, innersol)
-
-            # Failing:
-            coin_info.full_puzzle.run(singleton_solution)
-
-            # ownership_layer_solution = Program.to([innersol])
-            # nft_layer_solution = Program.to([ownership_layer_solution, coin_info.coin.amount])
-
-            # assert isinstance(coin_info.lineage_proof, LineageProof)
-
-            # singleton_solution = Program.to(
-            #     [coin_info.lineage_proof.to_program(), coin_info.coin.amount, sol]
-            # )
-
+            singleton_solution = Program.to(
+                [coin_info.lineage_proof.to_program(), coin_info.coin.amount, nft_layer_solution]
+            )
+            
             coin_spend = CoinSpend(coin_info.coin, coin_info.full_puzzle, singleton_solution)
             coin_spends.append(coin_spend)
 
@@ -952,26 +916,11 @@ class NFTWallet:
                 )
                 if tx.spend_bundle is not None
             ]
-
+            return SpendBundle.aggregate(spend_bundles)
         else:
-            # create  a list of spend bundles for the nft1 offer
-            # extract the correct ph from the given solver
-            solver = amount
-            amounts = []
-            for asset in solver.info["trade_prices_list"]:
-                for key, val in asset.items():
-                    if isinstance(key, bytes32) and asset["offered"]:
-                        amounts.append(val)
-            signed_txs = await self.generate_signed_transaction(
-                amounts,
-                [Offer.ph()],
-                fee=fee,
-                coins=set(coins),
-                puzzle_announcements_to_consume=announcements,
-            )
-            spend_bundles = [tx.spend_bundle for tx in signed_txs if tx.spend_bundle is not None]
-
-        return SpendBundle.aggregate(spend_bundles)
+            raise ValueError("No support for non-standard offers yet")
+        
+        
 
     async def fix_incomplete_offer(self, offer: Offer, incomplete_spends: List[CoinSpend]) -> Offer:
         spends_to_fix: List[CoinSpend] = []

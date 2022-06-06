@@ -253,6 +253,36 @@ def create_ownership_layer_mint_solution(
 
 
 def create_ownership_layer_transfer_solution(
+    new_did: bytes32,
+    new_did_inner_hash: bytes32,
+    trade_prices_list: List[List[int]],
+    new_pubkey: G1Element,
+    conditions: List[Any] = [],
+) -> Program:
+    log.debug(f"Creating a transfer solution with: {new_did} {new_did_inner_hash} {trade_prices_list} {new_pubkey}")
+    puzhash = STANDARD_PUZZLE_MOD.curry(new_pubkey).get_tree_hash()
+    condition_list = [
+        [
+            51,
+            puzhash,
+            1,
+            [puzhash],
+        ],
+        [-10, new_did, trade_prices_list, new_pubkey, [new_did_inner_hash]],
+    ]
+    log.debug("Condition list raw: %r", condition_list)
+    solution = Program.to(
+        [
+            [solution_for_conditions(condition_list)],
+            1,
+        ]
+    )
+    log.debug("Generated transfer solution: %s", solution)
+    return solution
+
+
+
+def create_ownership_layer_transfer_solution_graftroot(
     trade_prices_list: List[List[int]], new_pubkey: G1Element, conditions: List
 ) -> Program:
     log.debug(
