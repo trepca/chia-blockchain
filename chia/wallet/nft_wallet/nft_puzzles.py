@@ -29,7 +29,7 @@ STANDARD_PUZZLE_MOD = load_clvm("p2_delegated_puzzle_or_hidden_puzzle.clvm")
 
 
 def create_nft_layer_puzzle_with_curry_params(
-    metadata: Program, metadata_updater_hash: bytes32, inner_puzzle: Program
+        metadata: Program, metadata_updater_hash: bytes32, inner_puzzle: Program
 ) -> Program:
     """Curries params into nft_state_layer.clvm
 
@@ -68,7 +68,7 @@ def create_full_puzzle_with_nft_puzzle(singleton_id: bytes32, inner_puzzle: Prog
 
 
 def create_full_puzzle(
-    singleton_id: bytes32, metadata: Program, metadata_updater_puzhash: bytes32, inner_puzzle: Program
+        singleton_id: bytes32, metadata: Program, metadata_updater_puzhash: bytes32, inner_puzzle: Program
 ) -> Program:
     log.debug(
         "Creating full NFT puzzle with: \n%r\n%r\n%r\n%r",
@@ -182,11 +182,11 @@ def update_metadata(metadata: Program, update_condition: Program) -> Program:
 
 
 def create_ownership_layer_puzzle(
-    nft_id: bytes32,
-    did_id: bytes,
-    p2_puzzle: Program,
-    percentage: uint16,
-    royalty_puzzle_hash: Optional[bytes32] = None,
+        nft_id: bytes32,
+        did_id: bytes,
+        p2_puzzle: Program,
+        percentage: uint16,
+        royalty_puzzle_hash: Optional[bytes32] = None,
 ) -> Program:
     log.debug(
         "Creating ownership layer puzzle with NFT_ID: %s DID_ID: %s Royalty_Percentage: %d P2_puzzle: %s",
@@ -215,10 +215,11 @@ def create_ownership_layer_puzzle(
 
 
 def create_ownership_layer_transfer_solution(
-    new_did: bytes,
-    new_did_inner_hash: bytes32,
-    trade_prices_list: List[List[int]],
-    new_pubkey: G1Element,
+        new_did: bytes,
+        new_did_inner_hash: bytes32,
+        trade_prices_list: List[List[int]],
+        new_pubkey: G1Element,
+        wallet_puzhash: bytes32
 ) -> Program:
     log.debug(
         "Creating a transfer solution with: DID:%s Inner_puzhash:%s trade_price:%s pubkey:%s",
@@ -233,7 +234,7 @@ def create_ownership_layer_transfer_solution(
             51,
             puzhash,
             1,
-            [puzhash],
+            [wallet_puzhash],
         ],
         [-10, new_did, trade_prices_list, new_pubkey, [new_did_inner_hash]],
     ]
@@ -274,10 +275,10 @@ def get_metadata_and_phs(unft: UncurriedNFT, puzzle: Program, solution: Serializ
                 continue
             puzhash = bytes32(condition.rest().first().atom)
             memo = bytes32(condition.as_python()[-1][0])
-            if memo != puzhash:
-                puzhash_for_derivation = memo
-            else:
-                puzhash_for_derivation = puzhash
+            # if memo != puzhash:
+            #     puzhash_for_derivation = memo
+            # else:
+            puzhash_for_derivation = puzhash
             log.debug("Got back puzhash from solution: %s", puzhash_for_derivation)
     assert puzhash_for_derivation
     return metadata, puzhash_for_derivation
