@@ -28,6 +28,7 @@ from chia.wallet.nft_wallet.nft_puzzles import (
     NFT_TRANSFER_PROGRAM_DEFAULT,
     create_graftroot_transfer_puzzle,
     create_incomplete_graftroot_transfer_solution,
+    NFT_TRANSFER_PROGRAM_DEFAULT,
     create_ownership_layer_puzzle,
     create_ownership_layer_transfer_solution,
     get_metadata_and_phs, create_ownership_layer_transfer_solution_graftroot,
