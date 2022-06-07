@@ -1,5 +1,7 @@
+from collections import defaultdict
 from typing import Tuple
 
+import pytest
 from clvm.casts import int_from_bytes
 from clvm_tools.binutils import disassemble
 
@@ -139,30 +141,52 @@ def test_transfer_solution() -> None:
     owner_pk = int_to_public_key(10)
     destination = int_to_public_key(2)
     trade_prices_list = [[200]]
-    solution = create_ownership_layer_transfer_solution_graftroot(trade_prices_list, destination, [[61, 0xCAFEF00D]])
+    bad_solution = create_ownership_layer_transfer_solution_graftroot(trade_prices_list, destination,
+                                                                      [[62, 0xCAFEF00D],
+                                                                       [62,
+                                                                        0x3d4d7f97ad1eaf472daf3eff6519d59faf4b2b6d59b7318a162fad67634763e83eb26bfb4417ad22]])
     # _, solution = make_a_new_solution()
     p2_puzzle, ownership_puzzle = make_a_new_ownership_layer_puzzle(owner_pk)
     clvm_nft_puzzle = make_a_new_nft_puzzle(ownership_puzzle, Program.to(metadata))
-    conditions = clvm_nft_puzzle.run(solution)
+    with pytest.raises(ValueError):
+        conditions = clvm_nft_puzzle.run(bad_solution)
 
+    good_solution = create_ownership_layer_transfer_solution_graftroot(trade_prices_list, destination,
+                                                                       [[62, 0xCAFEF00D],
+                                                                        [62,
+                                                                         0x3d318a162fad67634763e83eb26bfb4417ad22]])
+    conditions = clvm_nft_puzzle.run(good_solution)
     # agg sig for owner to sign graftroot
-    graftroot_puz = NFT_GRAFTROOT_TRANSFER_MOD.curry([[61, 0xCAFEF00D]], trade_prices_list)
+    graftroot_puz = NFT_GRAFTROOT_TRANSFER_MOD.curry([[62, 0xCAFEF00D],
+                                                      [62,
+                                                       0x3d318a162fad67634763e83eb26bfb4417ad22]],
+                                                     trade_prices_list)
     print(disassemble(conditions))
-    assert conditions.at("rff").as_int() == 50
-    assert conditions.at("rfrf").atom == bytes(owner_pk)
-    assert conditions.at("rfrrf").atom == bytes(graftroot_puz.get_tree_hash())
-    assert conditions.as_python()[-1][1] == bytes.fromhex("00cafef00d")
-    # destination agg sig
-    assert conditions.at("rrrrff").as_int() == 50
-    assert conditions.at("rrrrfrf").atom == bytes(destination)
-    # test full stack
+    cond_dict = defaultdict(list)
+    for condition in conditions.as_python():
+        code = int_from_bytes(condition[0])
+        cond_dict[code].append(condition[1:])
+    assert any([x for x in cond_dict[62] if
+                x[0] == bytes.fromhex(
+                    "5d4d7f97ad1eaf472daf3eff6519d59faf4b2b6d59b7318a162fad67634763e83eb26bfb4417ad22")])
+
+    assert any([x for x in cond_dict[62] if
+                x[0] == bytes.fromhex(
+                    "00cafef00d")])
+    assert not any([x for x in cond_dict[62] if
+                    x[0] == bytes.fromhex(
+                        "3d4d7f97ad1eaf472daf3eff6519d59faf4b2b6d59b7318a162fad67634763e83eb26bfb4417ad22")])
+    assert any([x for x in cond_dict[49] if
+                x[0] == bytes(destination)])
+    print(graftroot_puz.get_tree_hash())
+    assert any([x for x in cond_dict[50] if
+                x[0] == bytes(owner_pk) and x[1] == bytes(graftroot_puz.get_tree_hash())])
 
     py_puzzle = create_full_puzzle_with_nft_puzzle(bytes([0] * 32), clvm_nft_puzzle)
     fullsol = Program.to([
         [bytes([0] * 32), bytes([0] * 32), 1],
         1,
-        solution])
+        good_solution])
     conds = py_puzzle.run(fullsol)
     assert conds
     assert conds.first().first().as_int() == 73
-
