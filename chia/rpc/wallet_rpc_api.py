@@ -321,7 +321,7 @@ class WalletRpcApi:
         return {}
 
     async def _check_key_used_for_rewards(
-        self, new_root: Path, sk: PrivateKey, max_ph_to_search: int
+            self, new_root: Path, sk: PrivateKey, max_ph_to_search: int
     ) -> Tuple[bool, bool]:
         """Checks if the given key is used for either the farmer rewards or pool rewards
         returns a tuple of two booleans
@@ -822,7 +822,7 @@ class WalletRpcApi:
         address = request["address"]
         selected_network = self.service.config["selected_network"]
         expected_prefix = self.service.config["network_overrides"]["config"][selected_network]["address_prefix"]
-        if address[0 : len(expected_prefix)] != expected_prefix:
+        if address[0: len(expected_prefix)] != expected_prefix:
             raise ValueError("Unexpected Address Prefix")
         puzzle_hash: bytes32 = decode_puzzle_hash(address)
 
@@ -1408,7 +1408,10 @@ class WalletRpcApi:
         nfts = nft_wallet.get_current_nfts()
         nft_info_list = []
         for nft in nfts:
-            nft_info_list.append(nft_puzzles.get_nft_info_from_puzzle(nft))
+            try:
+                nft_info_list.append(nft_puzzles.get_nft_info_from_puzzle(nft))
+            except ValueError:
+                log.exception("Error uncurrying NFT: %s", nft)
         return {"wallet_id": wallet_id, "success": True, "nft_list": nft_info_list}
 
     async def nft_set_nft_did(self, request):
@@ -1753,9 +1756,9 @@ class WalletRpcApi:
 
         coin_announcements: Optional[Set[Announcement]] = None
         if (
-            "coin_announcements" in request
-            and request["coin_announcements"] is not None
-            and len(request["coin_announcements"]) > 0
+                "coin_announcements" in request
+                and request["coin_announcements"] is not None
+                and len(request["coin_announcements"]) > 0
         ):
             coin_announcements = {
                 Announcement(
@@ -1770,9 +1773,9 @@ class WalletRpcApi:
 
         puzzle_announcements: Optional[Set[Announcement]] = None
         if (
-            "puzzle_announcements" in request
-            and request["puzzle_announcements"] is not None
-            and len(request["puzzle_announcements"]) > 0
+                "puzzle_announcements" in request
+                and request["puzzle_announcements"] is not None
+                and len(request["puzzle_announcements"]) > 0
         ):
             puzzle_announcements = {
                 Announcement(
