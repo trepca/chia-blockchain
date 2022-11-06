@@ -1448,7 +1448,7 @@ class FullNode:
             f"difficulty: {difficulty}, "
             f"sub slot iters: {sub_slot_iters}, "
             f"Generator size: "
-            f"{len(bytes(block.transactions_generator)) if  block.transactions_generator else 'No tx'}, "
+            f"{len(bytes(block.transactions_generator)) if block.transactions_generator else 'No tx'}, "
             f"Generator ref list size: "
             f"{len(block.transactions_generator_ref_list) if block.transactions_generator else 'No tx'}"
         )
@@ -2261,6 +2261,7 @@ class FullNode:
                 fees = mempool_item.fee
                 assert fees >= 0
                 assert cost is not None
+
                 new_tx = full_node_protocol.NewTransaction(
                     spend_name,
                     cost,
@@ -2628,7 +2629,6 @@ class FullNode:
 async def node_next_block_check(
     peer: WSChiaConnection, potential_peek: uint32, blockchain: BlockchainInterface
 ) -> bool:
-
     block_response: Optional[Any] = await peer.request_block(full_node_protocol.RequestBlock(potential_peek, True))
     if block_response is not None and isinstance(block_response, full_node_protocol.RespondBlock):
         peak = blockchain.get_peak()

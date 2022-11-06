@@ -14,6 +14,7 @@ from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.clvm_cost import CLVMCost
 from chia.types.fee_rate import FeeRate
 from chia.types.mempool_item import MempoolItem
+from chia.types.spend_bundle import SpendBundle
 from chia.util.ints import uint64
 
 
@@ -21,6 +22,7 @@ class Mempool:
     def __init__(self, max_size_in_cost: int, minimum_fee_per_cost_to_replace: uint64, max_block_cost_clvm: uint64):
         self.log = logging.getLogger(__name__)
         self.spends: Dict[bytes32, MempoolItem] = {}
+        self.agg_spends: Dict[bytes32, SpendBundle] = {}
         self.sorted_spends: SortedDict = SortedDict()
         self.removals: Dict[bytes32, List[bytes32]] = {}  # From removal coin id to spend bundle id
         self.max_size_in_cost: int = max_size_in_cost
@@ -65,6 +67,9 @@ class Mempool:
                 self.removals[rem_name].remove(spend_bundle_id)
                 if len(self.removals[rem_name]) == 0:
                     del self.removals[rem_name]
+            if item.aggregated_txs:
+                for sb in item.aggregated_txs:
+                    del self.agg_spends[sb.name()]
             del self.spends[item.name]
             del self.sorted_spends[item.fee_per_cost][item.name]
             dic = self.sorted_spends[item.fee_per_cost]
@@ -86,6 +91,9 @@ class Mempool:
             to_remove: MempoolItem = list(val.values())[0]
             self.remove_from_pool([to_remove.name])
 
+        if item.aggregated_txs:
+            for sb in item.aggregated_txs:
+                self.agg_spends[sb.name()] = sb
         self.spends[item.name] = item
 
         # sorted_spends is Dict[float, Dict[bytes32, MempoolItem]]

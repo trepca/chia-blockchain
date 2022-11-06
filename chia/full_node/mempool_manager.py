@@ -7,7 +7,9 @@ import time
 from concurrent.futures.process import ProcessPoolExecutor
 
 from chia.full_node.fee_estimation import FeeMempoolInfo, FeeBlockInfo
+from chia.types.blockchain_format.program import Program
 from chia.types.clvm_cost import CLVMCost
+from chia.types.coin_spend import CoinSpend
 from chia.types.fee_rate import FeeRate
 from chia.util.inline_executor import InlineExecutor
 from typing import Dict, List, Optional, Set, Tuple
@@ -218,12 +220,13 @@ class MempoolManager:
         # 0.00001 XCH
         return 10000000
 
-    def can_replace(
+    def can_replace_or_aggregate(
         self,
         conflicting_items: Dict[bytes32, MempoolItem],
         removals: Dict[bytes32, CoinRecord],
         fees: uint64,
         fees_per_cost: float,
+        singleton_coin_id: Optional[bytes32] = None,
     ) -> bool:
         conflicting_fees = 0
         conflicting_cost = 0
@@ -231,20 +234,31 @@ class MempoolManager:
             conflicting_fees += item.fee
             conflicting_cost += item.cost
 
-            # All coins spent in all conflicting items must also be spent in the new item. (superset rule). This is
-            # important because otherwise there exists an attack. A user spends coin A. An attacker replaces the
-            # bundle with AB with a higher fee. An attacker then replaces the bundle with just B with a higher
-            # fee than AB therefore kicking out A altogether. The better way to solve this would be to keep a cache
-            # of booted transactions like A, and retry them after they get removed from mempool due to a conflict.
             for coin in item.removals:
-                if coin.name() not in removals:
-                    log.debug(f"Rejecting conflicting tx as it does not spend conflicting coin {coin.name()}")
-                    return False
+                coin_id = coin.name()
+                if not singleton_coin_id:
+                    # replace by fee mode
+                    # All coins spent in all conflicting items must also be spent in the new item. (superset rule). This is
+                    # important because otherwise there exists an attack. A user spends coin A. An attacker replaces the
+                    # bundle with AB with a higher fee. An attacker then replaces the bundle with just B with a higher
+                    # fee than AB therefore kicking out A altogether. The better way to solve this would be to keep a cache
+                    # of booted transactions like A, and retry them after they get removed from mempool due to a conflict.
+                    if coin_id not in removals:
+                        log.info(f"Rejecting conflicting tx as it does not spend conflicting coin {coin.name()}")
+                        return False
+                else:
+                    # aggregate by singleton
+                    log.info(f"Comparing {coin_id} and {singleton_coin_id} and is in removals: {coin_id in removals}")
+                    if coin_id in removals and coin_id != singleton_coin_id:
+                        log.debug(
+                            f"Rejecting conflicting aggregating tx as it spends existing coins in the bundle -> {coin.name()}"
+                        )
+                        return False
 
         # New item must have higher fee per cost
         conflicting_fees_per_cost = conflicting_fees / conflicting_cost
         if fees_per_cost <= conflicting_fees_per_cost:
-            log.debug(
+            log.info(
                 f"Rejecting conflicting tx due to not increasing fees per cost "
                 f"({fees_per_cost} <= {conflicting_fees_per_cost})"
             )
@@ -253,7 +267,9 @@ class MempoolManager:
         # New item must increase the total fee at least by a certain amount
         fee_increase = fees - conflicting_fees
         if fee_increase < self.get_min_fee_increase():
-            log.debug(f"Rejecting conflicting tx due to low fee increase ({fee_increase})")
+            log.info(
+                f"Rejecting conflicting tx due to low fee increase ({fee_increase} < {self.get_min_fee_increase()})"
+            )
             return False
 
         log.info(f"Replacing conflicting tx in mempool. New tx fee: {fees}, old tx fees: {conflicting_fees}")
@@ -490,21 +506,50 @@ class MempoolManager:
             else:
                 return tl_error, None, []  # MempoolInclusionStatus.FAILED
 
+        singleton_coin_id: Optional[bytes32] = None
         if fail_reason is Err.MEMPOOL_CONFLICT:
+            existing_singleton_mempool_item: Optional[MempoolItem]
             for conflicting in conflicts:
                 for c_sb_id in self.mempool.removals[conflicting.name()]:
                     sb: MempoolItem = self.mempool.spends[c_sb_id]
                     conflicting_pool_items[sb.name] = sb
-            log.warning(f"Conflicting pool items: {len(conflicting_pool_items)}")
-            if not self.can_replace(conflicting_pool_items, removal_record_dict, fees, fees_per_cost):
-                return Err.MEMPOOL_CONFLICT, potential, []
+                    for conflict_spend in sb.spend_bundle.coin_spends:
+                        if conflict_spend.is_singleton_spend:
+                            if singleton_coin_id is not None:
+                                if existing_singleton_mempool_item == sb:
+                                    continue
+                                # we can only have one singleton spend in a bundle as it'd be hard to distinguish
+                                # which spends go to which singleton bundle
+                                log.warning(f"Only one singleton_id allowed when aggregating, rejecting {sb.name}")
+                                singleton_coin_id = None
+                                break
+                            log.warning(f"Found singleton id in: {sb}")
+                            existing_singleton_mempool_item = sb
+                            singleton_coin_id = conflict_spend.coin.name()
 
+            log.warning(f"Conflicting pool items: {len(conflicting_pool_items)}")
+            log.warning(f"Singleton mode: {singleton_coin_id}")
+            if singleton_coin_id is not None and existing_singleton_mempool_item is not None:
+                try:
+                    potential = await self.aggregate_singleton_tx(
+                        potential, singleton_coin_id, existing_singleton_mempool_item, fees
+                    )
+                except ValidationError:
+                    return Err.INVALID_SINGLETON_TO_AGGREGATE, None, []
+                # update fees and fees per cost with
+                fees_per_cost = potential.fee_per_cost
+                fees = potential.fee
+
+            if not self.can_replace_or_aggregate(
+                conflicting_pool_items, removal_record_dict, fees, fees_per_cost, singleton_coin_id=singleton_coin_id
+            ):
+                return Err.MEMPOOL_CONFLICT, potential, []
         duration = time.time() - start_time
 
         log.log(
             logging.DEBUG if duration < 2 else logging.WARNING,
             f"add_spendbundle {spend_name} took {duration:0.2f} seconds. "
-            f"Cost: {cost} ({round(100.0 * cost/self.constants.MAX_BLOCK_COST_CLVM, 3)}% of max block cost)",
+            f"Cost: {cost} ({round(100.0 * cost / self.constants.MAX_BLOCK_COST_CLVM, 3)}% of max block cost)",
         )
 
         return None, potential, list(conflicting_pool_items.keys())
@@ -638,3 +683,71 @@ class MempoolManager:
             datetime.datetime.now(),
             CLVMCost(uint64(self.constants.MAX_BLOCK_COST_CLVM)),
         )
+
+    async def aggregate_singleton_tx(
+        self,
+        potential: MempoolItem,
+        singleton_coin_id: bytes32,
+        existing_singleton_mempool_item: MempoolItem,
+        fees: int,
+    ) -> MempoolItem:
+        # TODO: acquire a lock for singleton coin so we don't have race conditions
+        # take solution from potential for singleton_coin_id
+        # add it to singleton sb to update
+        log.warning("singleton mode coin")
+        solution_to_append: Program
+        assert existing_singleton_mempool_item
+        new_spends_to_append = []
+        # find the singleton spend and collect all others to append to existing singleton spend in mempool
+        for potential_spend in potential.spend_bundle.coin_spends:
+            if potential_spend.is_singleton_spend and singleton_coin_id == potential_spend.coin.name():
+                solution_to_append = potential_spend.solution.to_program()
+            else:
+                new_spends_to_append.append(potential_spend)
+        new_singleton_solution: Program
+        spend_to_replace: CoinSpend
+        other_spends: List[CoinSpend] = []
+        for existing_spend in existing_singleton_mempool_item.spend_bundle.coin_spends:
+            if existing_spend.is_singleton_spend and singleton_coin_id == existing_spend.coin.name():
+                existing_solution = existing_spend.solution.to_program().as_python()
+                try:
+                    # get singletons inner solution and try to append additional solution to it
+                    # if this fails, it means this singleton doesn't support aggregation
+                    # TODO: optimize by doing this on a byte level
+                    additional_inner_solution = solution_to_append.as_python()[-1][0]
+                    existing_solution[-1][0].extend(additional_inner_solution)
+                except (AttributeError, ValueError):
+                    raise ValidationError(Err.INVALID_SINGLETON_TO_AGGREGATE)
+                new_singleton_solution = Program.to(existing_solution)
+                spend_to_replace = existing_spend
+            else:
+                other_spends.append(existing_spend)
+        log.warning("new singleton solution: %s", new_singleton_solution)
+        new_singleton_spend: CoinSpend = CoinSpend(
+            spend_to_replace.coin, spend_to_replace.puzzle_reveal, new_singleton_solution
+        )
+        conflict_item: MempoolItem
+        new_sb: SpendBundle = SpendBundle(
+            other_spends + [new_singleton_spend], existing_singleton_mempool_item.spend_bundle.aggregated_signature
+        )
+        new_sb = SpendBundle.aggregate(
+            [new_sb, SpendBundle(new_spends_to_append, potential.spend_bundle.aggregated_signature)]
+        )
+        new_sb_name = new_sb.name()
+        new_npc_result = await self.pre_validate_spendbundle(new_sb, None, new_sb_name)
+        log.warning("Updated potential item in mempool with new solution")
+        new_fees = uint64(new_sb.fees())
+        log.warning(f"Changing fees {fees} -> {new_fees}")
+        agg_txs: List[SpendBundle] = existing_singleton_mempool_item.aggregated_txs or []
+        agg_txs.append(potential.spend_bundle)
+        new_potential = MempoolItem(
+            new_sb,
+            new_fees,
+            new_npc_result,
+            new_npc_result.cost,
+            new_sb_name,
+            new_sb.additions(),
+            self.peak.height,
+            agg_txs,
+        )
+        return new_potential

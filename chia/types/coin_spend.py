@@ -4,6 +4,9 @@ from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import SerializedProgram, INFINITE_COST
 from chia.util.chain_utils import additions_for_solution, fee_for_solution
 from chia.util.streamable import Streamable, streamable
+from chia.wallet.puzzles.load_clvm import load_clvm_maybe_recompile
+
+SINGLETON_TOP_LAYER_MOD = load_clvm_maybe_recompile("singleton_top_layer_v1_1.clvm")
 
 
 @streamable
@@ -28,3 +31,7 @@ class CoinSpend(Streamable):
     # called on untrusted input
     def reserved_fee(self) -> int:
         return fee_for_solution(self.puzzle_reveal, self.solution, INFINITE_COST)
+
+    @property
+    def is_singleton_spend(self) -> bool:
+        return self.puzzle_reveal.uncurry()[0] == SINGLETON_TOP_LAYER_MOD

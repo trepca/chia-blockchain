@@ -144,7 +144,6 @@ class TestPendingTxCache:
 class TestMempool:
     @pytest.mark.asyncio
     async def test_basic_mempool(self, one_node_one_block, wallet_a):
-
         full_node_1, server_1, bt = one_node_one_block
 
         _ = await next_block(full_node_1, wallet_a, bt)
@@ -1408,7 +1407,7 @@ class TestMempoolManager:
     @pytest.mark.asyncio
     async def test_assert_fee_condition_fee_too_large(self, one_node_one_block, wallet_a):
         full_node_1, server_1, bt = one_node_one_block
-        cvp = ConditionWithArgs(ConditionOpcode.RESERVE_FEE, [int_to_bytes(2**64)])
+        cvp = ConditionWithArgs(ConditionOpcode.RESERVE_FEE, [int_to_bytes(2 ** 64)])
         dic = {cvp.opcode: [cvp]}
         blocks, spend_bundle1, peer, status, err = await self.condition_tester(
             one_node_one_block, wallet_a, dic, fee=10
@@ -1826,7 +1825,7 @@ class TestMempoolManager:
     async def test_my_amount_too_large(self, one_node_one_block, wallet_a):
 
         full_node_1, server_1, bt = one_node_one_block
-        cvp = ConditionWithArgs(ConditionOpcode.ASSERT_MY_AMOUNT, [int_to_bytes(2**64)])
+        cvp = ConditionWithArgs(ConditionOpcode.ASSERT_MY_AMOUNT, [int_to_bytes(2 ** 64)])
         dic = {cvp.opcode: [cvp]}
         blocks, spend_bundle1, peer, status, err = await self.condition_tester(one_node_one_block, wallet_a, dic)
 
@@ -2026,7 +2025,8 @@ class TestGeneratorConditions:
         puzzle_hash = "abababababababababababababababab"
         program = SerializedProgram.from_bytes(
             binutils.assemble(
-                f'(q ((0x0101010101010101010101010101010101010101010101010101010101010101 (q (51 "{puzzle_hash}" 10)) 123 (() (q . ())))(0x0101010101010101010101010101010101010101010101010101010101010102 (q (51 "{puzzle_hash}" 10)) 123 (() (q . ()))) ))'  # noqa
+                f'(q ((0x0101010101010101010101010101010101010101010101010101010101010101 (q (51 "{puzzle_hash}" 10)) 123 (() (q . ())))(0x0101010101010101010101010101010101010101010101010101010101010102 (q (51 "{puzzle_hash}" 10)) 123 (() (q . ()))) ))'
+                # noqa
             ).as_bin()
         )
         generator = BlockGenerator(program, [], [])
@@ -2387,7 +2387,6 @@ class TestMaliciousGenerators:
 
 
 class TestPkmPairs:
-
     h1 = bytes32(b"a" * 32)
     h2 = bytes32(b"b" * 32)
     h3 = bytes32(b"c" * 32)
@@ -2416,7 +2415,6 @@ class TestPkmPairs:
         assert msgs == []
 
     def test_agg_sig_me(self):
-
         spends = [Spend(self.h1, self.h2, None, 0, [], [(bytes48(self.pk1), b"msg1"), (bytes48(self.pk2), b"msg2")])]
         conds = SpendBundleConditions(spends, 0, 0, 0, [], 0)
         pks, msgs = pkm_pairs(conds, b"foobar")
@@ -2430,9 +2428,45 @@ class TestPkmPairs:
         assert msgs == [b"msg1", b"msg2"]
 
     def test_agg_sig_mixed(self):
-
         spends = [Spend(self.h1, self.h2, None, 0, [], [(bytes48(self.pk1), b"msg1")])]
         conds = SpendBundleConditions(spends, 0, 0, 0, [(bytes48(self.pk2), b"msg2")], 0)
         pks, msgs = pkm_pairs(conds, b"foobar")
         assert [bytes(pk) for pk in pks] == [bytes(self.pk2), bytes(self.pk1)]
         assert msgs == [b"msg2", b"msg1" + self.h1 + b"foobar"]
+
+
+@pytest.mark.asyncio
+async def test_mempool_spend_aggregation(two_nodes_one_block, wallet_a, self_hostname) -> None:
+    full_node_1, full_node_2, server_1, server_2, bt = two_nodes_one_block
+
+    peer = await connect_and_get_peer(server_1, server_2, self_hostname)
+
+    open_puzzle = Program.to(1)
+    _ = await next_block(full_node_1, wallet_a, bt)
+    coin = await next_block(full_node_1, wallet_a, bt)
+    ao = []
+    for num in range(1, 5):
+        ao.append((open_puzzle.get_tree_hash(), 100000000 * num))
+    spend_bundle = wallet_a.generate_signed_transaction(uint64(1000), coin.puzzle_hash, coin, additional_outputs=ao)
+    assert spend_bundle is not None
+
+    open_coins = spend_bundle.additions()
+    tx = wallet_protocol.SendTransaction(spend_bundle)
+    msg = await full_node_1.send_transaction(tx, test=True)
+    msg = TransactionAck.from_bytes(msg.data)
+    assert msg.status == MempoolInclusionStatus.SUCCESS
+    tx2: full_node_protocol.RespondTransaction = full_node_protocol.RespondTransaction(spend_bundle)
+    status, err = await respond_transaction(full_node_2, tx2, peer, test=True)
+    assert len(open_coins) == 6
+    await time_out_assert(
+        3,
+        full_node_1.full_node.mempool_manager.get_spendbundle,
+        spend_bundle,
+        spend_bundle.name(),
+    )
+    await time_out_assert(
+        3,
+        full_node_2.full_node.mempool_manager.get_spendbundle,
+        spend_bundle,
+        spend_bundle.name(),
+    )
