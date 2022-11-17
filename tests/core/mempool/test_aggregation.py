@@ -1,43 +1,19 @@
+from typing import Tuple, List
+
 import pytest
 from blspy import G2Element
-from clvm_tools.binutils import disassemble
 
 from chia.clvm.spend_sim import SimClient, SpendSim
-from chia.protocols import full_node_protocol
-from chia.simulator.time_out_assert import time_out_assert
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
-from chia.types.coin_record import CoinRecord
 from chia.types.coin_spend import CoinSpend
-from chia.types.mempool_inclusion_status import MempoolInclusionStatus
 from chia.types.spend_bundle import SpendBundle
 from chia.util.errors import Err
 from chia.util.ints import uint64
 from chia.wallet.lineage_proof import LineageProof
 from chia.wallet.puzzles import singleton_top_layer_v1_1 as singleton_top_layer
-
-from secrets import token_bytes
-from typing import Tuple, List
-
-from clvm.casts import int_from_bytes
-
-from chia.types.blockchain_format.program import Program
-from chia.types.blockchain_format.sized_bytes import bytes32
-from chia.wallet.nft_wallet import uncurry_nft
-from chia.wallet.nft_wallet.nft_puzzles import (
-    construct_ownership_layer,
-    create_full_puzzle,
-    create_nft_layer_puzzle_with_curry_params,
-    recurry_nft_puzzle,
-)
-from chia.wallet.outer_puzzles import match_puzzle
 from chia.wallet.puzzles.load_clvm import load_clvm
-from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import puzzle_for_pk, solution_for_conditions
-from chia.wallet.uncurried_puzzle import uncurry_puzzle
-from tests.connection_utils import connect_and_get_peer
-from tests.core.full_node.test_mempool import next_block
-from tests.core.make_block_generator import int_to_public_key
 
 SINGLETON_MOD = load_clvm("singleton_top_layer_v1_1.clvm")
 LAUNCHER_PUZZLE = load_clvm("singleton_launcher.clvm")
@@ -149,8 +125,6 @@ async def test_agg_singleton_spend(setup_sim: Tuple[SpendSim, SimClient]) -> Non
 
         await assert_puzzle_hash(sim_client, launcher_id, 1000)
 
-        # bundle = SpendBundle.aggregate([make_bundle(singleton, [1]), make_bundle(singleton, [2])])
-        fee_counts: List[int] = list(range(20))
         result, error = await sim_client.push_tx(
             await make_bundle(sim_client, launcher_id, singleton_eve_coinsol, [1000], 1000)
         )

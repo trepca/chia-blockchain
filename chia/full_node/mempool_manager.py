@@ -694,6 +694,7 @@ class MempoolManager:
         # TODO: acquire a lock for singleton coin so we don't have race conditions
         # take solution from potential for singleton_coin_id
         # add it to singleton sb to update
+        assert self.peak
         log.warning("singleton mode coin")
         solution_to_append: Program
         assert existing_singleton_mempool_item
