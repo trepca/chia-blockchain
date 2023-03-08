@@ -1272,7 +1272,13 @@ async def test_nft_offer_sell_cancel_in_batch(self_hostname: str, two_wallet_nod
 )
 @pytest.mark.parametrize(
     "forwards_compat,royalty_pts",
-    [(True, (200, 500, 500)), (False, (200, 500, 500)), (False, (0, 0, 0))],
+    [
+        (True, (200, 500, 500)),
+        (False, (200, 500, 500)),
+        (False, (0, 0, 0)),
+        (True, (9999, 8000, 5000)),
+        (True, (10001, 20000, 40000)),
+    ],
 )
 @pytest.mark.asyncio
 # @pytest.mark.skip
